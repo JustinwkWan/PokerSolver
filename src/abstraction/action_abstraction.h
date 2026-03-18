@@ -30,7 +30,7 @@ struct BetSizeConfig {
 //
 // The result is clamped to [min_raise, max_raise]. Duplicates and sizes
 // below min_raise are removed. All-in is always included as a distinct action.
-
+ 
 class ActionAbstraction {
 public:
     explicit ActionAbstraction(

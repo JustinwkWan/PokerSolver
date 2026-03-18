@@ -42,11 +42,31 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+# ── cpp-httplib (header-only HTTP server) ─────────────────────────────────
+FetchContent_Declare(
+  httplib
+  GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+  GIT_TAG        v0.15.3
+)
+FetchContent_MakeAvailable(httplib)
+
+# ── nlohmann/json (header-only JSON library) ──────────────────────────────
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG        v3.11.3
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
+enable_testing()
+
 # ── Subdirectories ─────────────────────────────────────────────────────────
 add_subdirectory(src/core)
 add_subdirectory(src/abstraction)
 add_subdirectory(src/tree)
 add_subdirectory(src/solver)
 add_subdirectory(src/subgame)
+add_subdirectory(src/cli)
+add_subdirectory(src/server)
 add_subdirectory(tools)
 add_subdirectory(tests)

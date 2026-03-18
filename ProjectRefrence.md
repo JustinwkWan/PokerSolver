@@ -513,6 +513,67 @@ poker-solver subgame --blueprint data/strategy/ --hand "AhKs" --board "Td9c2h7d"
 
 **Deliverable:** Working CLI that exposes all solver functionality. Clean API that could be embedded in other applications.
 
+**Status:** [x] Complete
+
+---
+
+### Phase 6b: Multithreaded Solver
+
+**Goal:** Parallelize DCFR iterations across multiple CPU cores for near-linear speedup. Currently the solver is single-threaded — on a modern Mac (8-12 cores) this leaves 85-90% of compute on the table.
+
+**Why it matters:** A 100bb solve at 1M iterations takes hours single-threaded. With 8 cores it drops to under an hour. This is the single biggest performance win available.
+
+**Expected speedup:**
+
+| Cores | Speedup | Efficiency | Example hardware |
+|-------|---------|------------|------------------|
+| 1 | 1x | 100% | Baseline |
+| 4 | ~3.5x | ~88% | M1/M2 base |
+| 8 | ~6-7x | ~80-85% | M2/M3 Pro |
+| 10-12 | ~8-10x | ~80% | M3/M4 Pro/Max |
+| 16 | ~12-14x | ~75-85% | High-end desktop |
+| 64 | ~45-55x | ~70-85% | Cloud instance |
+
+Efficiency drops slightly at high core counts due to memory bandwidth contention on shared regret arrays, but external-sampling DCFR is embarrassingly parallel — each iteration samples independent cards and traverses the tree independently.
+
+**Implementation:**
+
+```
+┌─────────────────────────────────────────────┐
+│              CFRSolver::run()                │
+│                                             │
+│  ┌─────────┐ ┌─────────┐     ┌─────────┐   │
+│  │Thread 0 │ │Thread 1 │ ... │Thread N │   │
+│  │ RNG     │ │ RNG     │     │ RNG     │   │
+│  │ cards   │ │ cards   │     │ cards   │   │
+│  │ traverse│ │ traverse│     │ traverse│   │
+│  │ local   │ │ local   │     │ local   │   │
+│  │ regrets │ │ regrets │     │ regrets │   │
+│  └────┬────┘ └────┬────┘     └────┬────┘   │
+│       └───────────┼───────────────┘         │
+│                   ▼                         │
+│         Merge into shared store             │
+│         (every ~1000 iterations)            │
+└─────────────────────────────────────────────┘
+```
+
+**Key design:**
+
+1. **Per-thread state:** Each thread gets its own RNG, sampled cards, and local regret/strategy delta buffers. No locking during traversal.
+2. **Periodic merge:** Every ~1000 iterations, threads pause and merge their local deltas into the shared RegretStore. This is a brief synchronized step.
+3. **Alternative: atomic updates:** Use `std::atomic<float>` with relaxed memory ordering for direct writes to the shared store. Simpler, slightly less cache-friendly, but eliminates the merge step. Shark 2.0 and OpenSpiel use this approach successfully.
+4. **Thread pool:** `std::thread` or C++17 parallel algorithms. No external dependency needed.
+
+**Files:**
+- `src/solver/cfr_solver.h/.cpp` — add `run(iterations, num_threads)` overload
+- `src/solver/thread_pool.h` — lightweight thread pool (optional, can use raw `std::thread`)
+
+**Risks:**
+- **Memory bandwidth:** At 16+ cores, the shared regret arrays may become a bottleneck. Profile with `perf` or Instruments.
+- **Non-determinism:** Different thread scheduling = different iteration order = slightly different final strategy. Results are still correct (converge to same equilibrium) but not bit-for-bit reproducible across runs.
+
+**Deliverable:** `poker-solver solve --threads N` uses N cores. Default to `std::thread::hardware_concurrency()`.
+
 **Status:** [ ] Not started
 
 ---
@@ -732,6 +793,79 @@ poker-solver nodelock --blueprint data/strategy/ \
 
 ---
 
+### Phase 9: Web UI (PioSolver-Style Interface)
+
+**Goal:** A browser-based GUI that provides a PioSolver-like experience — hand grid selector, tree navigator, strategy visualization, range viewer, and real-time subgame solving. The solver stays pure C++ behind a lightweight HTTP/WebSocket server.
+
+**Architecture:**
+
+```
+┌─────────────────────────────────┐
+│         React Frontend          │
+│  ┌───────┐ ┌───────┐ ┌───────┐ │
+│  │ Hand  │ │ Tree  │ │Range  │ │
+│  │ Grid  │ │Browser│ │Viewer │ │
+│  └───┬───┘ └───┬───┘ └───┬───┘ │
+│      └─────────┼─────────┘     │
+│                ▼               │
+│         HTTP/WebSocket         │
+└────────────────┬───────────────┘
+                 │ JSON API
+┌────────────────┴───────────────┐
+│      C++ HTTP Server           │
+│  (cpp-httplib or Crow)         │
+│         │                      │
+│    poker_solver API            │
+│  solve / query / subgame /     │
+│  exploit / tree-browse         │
+└────────────────────────────────┘
+```
+
+**Backend (C++ JSON API server):**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+
+| `/api/solve` | POST | Start a solve job (async, returns job ID) |
+| `/api/solve/:id/status` | GET | Poll solve progress (iteration count, EV) |
+| `/api/solve/:id/cancel` | POST | Cancel a running solve |
+| `/api/query` | POST | Query strategy at a node for one hand |
+| `/api/query/range` | POST | Query strategy for all 1326 combos at a node |
+| `/api/subgame` | POST | Run subgame solve (async) |
+| `/api/exploit` | POST | Measure exploitability (async) |
+| `/api/tree` | GET | Get tree structure (node list with children) |
+| `/api/tree/:node` | GET | Get node details (actions, pot, street) |
+| `/ws/solve` | WebSocket | Real-time solve progress updates |
+
+**Frontend (React):**
+
+| Component | Description |
+|-----------|-------------|
+| Hand Grid | 13x13 grid of hand classes (colored by action frequency) |
+| Strategy Bar | Colored bar showing fold/call/raise percentages per hand |
+| Tree Browser | Click-through game tree navigator (like PioSolver's tree view) |
+| Range Viewer | Full range display with EV and frequency for each combo |
+| Solve Panel | Configure and launch solves with progress bar |
+| Board Selector | Visual board card picker |
+
+**Key Implementation Notes:**
+
+- The C++ server wraps the existing `poker_solver` namespace API — no solver logic in the server layer
+- Solves run in background threads; progress reported via WebSocket or polling
+- Range queries batch all 1326 combos — need to add a batch query API to `solver_api.cpp`
+- Tree browser needs a new `tree_export()` function to serialize the game tree as JSON
+- Frontend served as static files from the C++ server (single binary deployment)
+
+**Dependencies:**
+- C++: `cpp-httplib` (header-only HTTP server) + `nlohmann/json` (JSON serialization)
+- Frontend: React + Tailwind CSS + a charting library for equity graphs
+
+**Deliverable:** A self-contained binary that serves a web UI on `localhost:8080`. User runs `poker-solver ui --port 8080` and opens a browser to interact with the solver visually.
+
+**Status:** [ ] Not started
+
+---
+
 ### Cross-Cutting Concerns for Phases 7 & 8
 
 These considerations affect the design of both exploitation phases and should be addressed during implementation.
@@ -931,3 +1065,5 @@ Every module gets tested before the next one starts. No exceptions.
 - 2026-03-17: Added Phase 7 (archetype-based exploitation), Phase 8 (full opponent modeling at 20K+ hands), and cross-cutting concerns (hand history formats, position-dependent modeling, stack-depth segmentation, multi-way handling, bet sizing tells, card removal, anonymous tracking, solver validation).
 - 2026-03-18: Added suit isomorphism (Phase 3, locked-in decision) and two-pointer showdown evaluation (Phase 4) based on analysis of Shark 2.0 solver. Removed isomorphism from open questions.
 - 2026-03-18: Added Nash distance targets (Phase 4), depth-limited solving future enhancement (Phase 5), nodelocking (Phases 7/8), and 1,755 distinct flops reference (Phase 3) based on GTO Wizard analysis.
+- 2026-03-18: Phase 6 (CLI & API) completed. Added Phase 9 (Web UI — PioSolver-style browser interface with C++ HTTP server backend and React frontend).
+- 2026-03-18: Added Phase 6b (Multithreaded Solver) — near-linear speedup via per-thread RNG/regret buffers with periodic merge or atomic updates.

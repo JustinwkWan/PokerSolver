@@ -43,8 +43,9 @@ RegretStore::RegretStore(uint64_t num_info_sets, int max_actions,
         strategy_[0] = new float[n]();
         strategy_[1] = new float[n]();
     } else {
-        // File-backed mode: create mmap'd files.
+        // File-backed mode: create directory if needed, then mmap files.
         anonymous_ = false;
+        mkdir(dir.c_str(), 0755);  // ignore error if exists
         for (int i = 0; i < 4; ++i)
             mapFile(i, dir + "/" + kFileNames[i], /*create=*/true);
         regrets_[0]  = static_cast<float*>(regions_[0].addr);
@@ -196,6 +197,7 @@ void RegretStore::sync(bool blocking) {
 }
 
 void RegretStore::checkpoint(const std::string& dir, uint64_t iteration) const {
+    mkdir(dir.c_str(), 0755);  // ignore error if exists
     if (!anonymous_) {
         // Sync the current files first.
         for (int i = 0; i < 4; ++i) {
