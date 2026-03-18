@@ -46,6 +46,26 @@ add_executable(test_suit_isomorphism test_suit_isomorphism.cpp)
 target_link_libraries(test_suit_isomorphism PRIVATE abstraction core GTest::gtest_main)
 gtest_discover_tests(test_suit_isomorphism)
 
+# ── test_action_translation (Phase 5) ────────────────────────────────
+add_executable(test_action_translation test_action_translation.cpp)
+target_link_libraries(test_action_translation PRIVATE subgame solver tree abstraction core GTest::gtest_main)
+gtest_discover_tests(test_action_translation)
+
+# ── test_subgame_solver (Phase 5) ────────────────────────────────────
+add_executable(test_subgame_solver test_subgame_solver.cpp)
+target_link_libraries(test_subgame_solver PRIVATE subgame solver tree abstraction core GTest::gtest_main)
+gtest_discover_tests(test_subgame_solver)
+
+# ── test_exploitability (Phase 4) ────────────────────────────────────
+add_executable(test_exploitability test_exploitability.cpp)
+target_link_libraries(test_exploitability PRIVATE solver tree abstraction core GTest::gtest_main)
+gtest_discover_tests(test_exploitability)
+
+# ── test_cfr_solver (Phase 4) ────────────────────────────────────────
+add_executable(test_cfr_solver test_cfr_solver.cpp)
+target_link_libraries(test_cfr_solver PRIVATE solver tree abstraction core GTest::gtest_main)
+gtest_discover_tests(test_cfr_solver)
+
 # ── test_regret_store (Phase 4) ──────────────────────────────────────
 add_executable(test_regret_store test_regret_store.cpp)
 target_link_libraries(test_regret_store PRIVATE solver tree abstraction core GTest::gtest_main)
