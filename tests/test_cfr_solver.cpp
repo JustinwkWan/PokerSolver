@@ -265,3 +265,90 @@ TEST(CFRSolver, LargerTreeRuns) {
     solver.run(10);
     EXPECT_EQ(solver.iteration(), 10u);
 }
+
+// ── Parallel: runs without crashing ─────────────────────────────────────
+
+TEST(CFRSolver, ParallelRuns) {
+    auto tree = makeSmallTree();
+    InfoSetManager mgr(tree, kTestBuckets);
+    RegretStore store(mgr.totalInfoSets(), mgr.maxActions());
+    CFRSolver solver(tree, mgr, store, simpleBucket);
+
+    solver.runParallel(200, 4, 50);
+    EXPECT_EQ(solver.iteration(), 200u);
+}
+
+// ── Parallel: produces non-zero regrets and strategy sums ───────────────
+
+TEST(CFRSolver, ParallelProducesNonZeroValues) {
+    auto tree = makeSmallTree();
+    InfoSetManager mgr(tree, kTestBuckets);
+    RegretStore store(mgr.totalInfoSets(), mgr.maxActions());
+    CFRSolver solver(tree, mgr, store, simpleBucket);
+
+    solver.runParallel(500, 4);
+
+    bool found_regret = false;
+    bool found_strat = false;
+    for (int p = 0; p < 2; ++p) {
+        for (uint64_t i = 0; i < store.totalEntries(); ++i) {
+            if (store.regrets(p)[i] != 0.0f) found_regret = true;
+            if (store.strategy(p)[i] != 0.0f) found_strat = true;
+            if (found_regret && found_strat) break;
+        }
+        if (found_regret && found_strat) break;
+    }
+    EXPECT_TRUE(found_regret) << "All regrets are zero after parallel run";
+    EXPECT_TRUE(found_strat) << "All strategy sums are zero after parallel run";
+}
+
+// ── Parallel: average strategy is valid probability distribution ────────
+
+TEST(CFRSolver, ParallelAverageStrategyValid) {
+    auto tree = makeSmallTree();
+    InfoSetManager mgr(tree, kTestBuckets);
+    RegretStore store(mgr.totalInfoSets(), mgr.maxActions());
+    CFRSolver solver(tree, mgr, store, simpleBucket);
+
+    solver.runParallel(1000, 4);
+
+    for (uint32_t base = 0; base < std::min(mgr.numBaseInfoSets(), 20u); ++base) {
+        int player = mgr.playerForBase(base);
+        int num_actions = mgr.numActionsForBase(base);
+        int bucket = 0;
+
+        for (uint32_t ni = 0; ni < tree.numNodes(); ++ni) {
+            const auto& n = tree.node(ni);
+            if (n.type != NodeType::Action) continue;
+            if (n.info_set_idx != base) continue;
+
+            uint64_t info_id = mgr.infoSetId(ni, bucket);
+            float avg[8];
+            store.getAverageStrategy(player, info_id, num_actions, avg);
+
+            float sum = 0.0f;
+            for (int a = 0; a < num_actions; ++a) {
+                EXPECT_GE(avg[a], 0.0f);
+                EXPECT_LE(avg[a], 1.0f);
+                sum += avg[a];
+            }
+            EXPECT_NEAR(sum, 1.0f, 1e-5f);
+            break;
+        }
+    }
+}
+
+// ── Parallel on larger tree ─────────────────────────────────────────────
+
+TEST(CFRSolver, ParallelLargerTree) {
+    ActionAbstraction aa;
+    GameTree tree(200, aa);
+    tree.build();
+
+    InfoSetManager mgr(tree, kTestBuckets);
+    RegretStore store(mgr.totalInfoSets(), mgr.maxActions());
+    CFRSolver solver(tree, mgr, store, simpleBucket);
+
+    solver.runParallel(100, 4);
+    EXPECT_EQ(solver.iteration(), 100u);
+}

@@ -1,17 +1,16 @@
 import { useState, useEffect } from 'react';
-import TreeBrowser from './components/TreeBrowser';
 import RangeViewer from './components/RangeViewer';
 import BoardSelector from './components/BoardSelector';
 import StrategyBar from './components/StrategyBar';
 import HandGrid from './components/HandGrid';
+import QueryPanel from './components/QueryPanel';
 import { api } from './api/client';
 import { POSITIONS } from './data/presets';
 import { SOLVE_PRESETS } from './data/solvePresets';
 import type { SolvePreset } from './data/solvePresets';
-import type { StrategyResult } from './api/client';
 import type { ActionFreqs } from './data/presets';
 
-type Tab = 'ranges' | 'solver' | 'tree' | 'query';
+type Tab = 'ranges' | 'solver' | 'query';
 
 function App() {
   const [tab, setTab] = useState<Tab>('ranges');
@@ -25,16 +24,6 @@ function App() {
   const [presetStatus, setPresetStatus] = useState<Record<string, { exists: boolean; iterations: number }>>({});
   const [solverBoard, setSolverBoard] = useState('');
   const [solverHistory, setSolverHistory] = useState('');
-
-  // Query tab state
-  const [queryHand, setQueryHand] = useState('');
-  const [queryBoard, setQueryBoard] = useState('');
-  const [queryHistory, setQueryHistory] = useState('');
-  const [queryResult, setQueryResult] = useState<StrategyResult | null>(null);
-  const [queryError, setQueryError] = useState('');
-
-  // Tree browser state
-  const [treeHistory, setTreeHistory] = useState('');
 
   const pos = POSITIONS[posIdx];
   const handFreqs: ActionFreqs | undefined = selectedHand ? pos.range[selectedHand] : undefined;
@@ -50,26 +39,9 @@ function App() {
     }
   }, [tab]);
 
-  const runQuery = async () => {
-    setQueryError('');
-    try {
-      const result = await api.query({
-        strategy_path: activePreset.strategy_path,
-        hand: queryHand,
-        board: queryBoard || undefined,
-        history: queryHistory || undefined,
-        stack_depth_bb: activePreset.stack_depth_bb,
-      });
-      setQueryResult(result);
-    } catch (e) {
-      setQueryError(String(e));
-    }
-  };
-
   const tabs: { key: Tab; label: string }[] = [
     { key: 'ranges', label: 'Ranges' },
     { key: 'solver', label: 'Solver' },
-    { key: 'tree', label: 'Tree Browser' },
     { key: 'query', label: 'Hand Query' },
   ];
 
@@ -308,110 +280,8 @@ function App() {
           </div>
         )}
 
-        {/* ── Tree Browser tab ─────────────────────────────────────────── */}
-        {tab === 'tree' && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <h2 className="text-lg font-semibold">Game Tree Browser</h2>
-              <div className="flex gap-2">
-                {SOLVE_PRESETS.map((p, i) => (
-                  <button
-                    key={p.id}
-                    onClick={() => setPresetIdx(i)}
-                    className={`px-3 py-1 rounded text-xs font-medium transition-colors
-                      ${presetIdx === i
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
-                  >
-                    {p.stack_depth_bb}bb
-                  </button>
-                ))}
-              </div>
-            </div>
-            <TreeBrowser
-              stack={activePreset.stack_depth_bb}
-              onNodeSelect={(_idx, hist) => setTreeHistory(hist)}
-            />
-            {treeHistory && (
-              <div className="text-sm text-slate-400">
-                History: <span className="font-mono text-slate-300">{treeHistory}</span>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ── Hand Query tab ───────────────────────────────────────────── */}
-        {tab === 'query' && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Hand Query</h2>
-
-            {/* Preset selector */}
-            <div className="flex gap-2 mb-2">
-              {SOLVE_PRESETS.map((p, i) => (
-                <button
-                  key={p.id}
-                  onClick={() => setPresetIdx(i)}
-                  className={`px-3 py-1 rounded text-xs font-medium transition-colors
-                    ${presetIdx === i
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
-                >
-                  {p.name}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex gap-4 items-end flex-wrap">
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Hand</label>
-                <input
-                  type="text"
-                  value={queryHand}
-                  onChange={e => setQueryHand(e.target.value)}
-                  placeholder="e.g. AhKs"
-                  className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm w-24 font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Board</label>
-                <BoardSelector value={queryBoard} onChange={setQueryBoard} />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">History</label>
-                <input
-                  type="text"
-                  value={queryHistory}
-                  onChange={e => setQueryHistory(e.target.value)}
-                  placeholder="e.g. rc"
-                  className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm w-24 font-mono"
-                />
-              </div>
-              <button
-                onClick={runQuery}
-                className="bg-purple-600 hover:bg-purple-700 px-5 py-2 rounded text-sm font-medium
-                  transition-colors"
-              >
-                Query
-              </button>
-            </div>
-
-            <div className="text-xs text-slate-500">
-              Using: {activePreset.name} ({activePreset.strategy_path})
-            </div>
-
-            {queryError && <div className="text-red-400 text-sm">{queryError}</div>}
-
-            {queryResult && (
-              <div className="bg-slate-800 rounded-lg p-5 max-w-md">
-                <StrategyBar
-                  hand={queryHand}
-                  actions={queryResult.actions}
-                  probabilities={queryResult.probabilities}
-                />
-              </div>
-            )}
-          </div>
-        )}
+        {tab === 'query' && <QueryPanel />}
       </main>
     </div>
   );

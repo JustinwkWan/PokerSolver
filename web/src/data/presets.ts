@@ -56,75 +56,103 @@ function buildRange(
   return range;
 }
 
-// ── UTG (Under the Gun) — tightest open, ~15% of hands ────────────────
+// ── UTG (Under the Gun) — tightest open, ~18% of hands ────────────────
 const UTG_RANGE = buildRange(
   // Always raise
-  [
-    'AA', 'KK', 'QQ', 'JJ', 'TT', '99',
-    'AKs', 'AQs', 'AJs', 'ATs',
-    'KQs', 'KJs',
-    'QJs',
-    'AKo', 'AQo',
-  ],
-  // Mixed raise
-  {
-    '88': 0.9, '77': 0.5,
-    'A9s': 0.6, 'A5s': 0.8, 'A4s': 0.5,
-    'KTs': 0.7, 'QTs': 0.5, 'JTs': 0.8,
-    'T9s': 0.4,
-    'AJo': 0.7,
-    'KQo': 0.5,
-  },
-);
-
-// ── LJ (Lojack) — slightly wider, ~18% ────────────────────────────────
-const LJ_RANGE = buildRange(
   [
     'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88',
     'AKs', 'AQs', 'AJs', 'ATs', 'A5s',
     'KQs', 'KJs', 'KTs',
-    'QJs', 'QTs',
-    'JTs',
-    'AKo', 'AQo', 'AJo',
+    'QJs', 'JTs',
+    'AKo', 'AQo',
   ],
+  // Mixed raise
   {
-    '77': 0.8, '66': 0.4,
-    'A9s': 0.8, 'A4s': 0.7, 'A3s': 0.4,
-    'K9s': 0.4, 'Q9s': 0.3,
-    'T9s': 0.7, '98s': 0.5,
-    'KQo': 0.8, 'ATo': 0.5,
+    '77': 0.7, '66': 0.3,
+    'A9s': 0.8, 'A4s': 0.6, 'A3s': 0.3,
+    'QTs': 0.7, 'T9s': 0.6, '98s': 0.3,
+    'K9s': 0.3,
+    'AJo': 0.9, 'KQo': 0.7,
+    'ATo': 0.3,
   },
 );
 
-// ── CO (Cutoff) — wider, ~25% ──────────────────────────────────────────
-const CO_RANGE = buildRange(
+// ── LJ (Lojack) — slightly wider, ~21% ────────────────────────────────
+const LJ_RANGE = buildRange(
   [
     'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77',
-    'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A5s', 'A4s', 'A3s',
+    'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A5s',
+    'KQs', 'KJs', 'KTs',
+    'QJs', 'QTs',
+    'JTs', 'T9s',
+    'AKo', 'AQo', 'AJo',
+  ],
+  {
+    '66': 0.7, '55': 0.3,
+    'A4s': 0.8, 'A3s': 0.5, 'A8s': 0.3,
+    'K9s': 0.6, 'Q9s': 0.5,
+    '98s': 0.7, '87s': 0.3,
+    'KQo': 1.0, 'ATo': 0.7, 'KJo': 0.3,
+  },
+);
+
+// ── CO (Cutoff) — wider, ~28% ──────────────────────────────────────────
+const CO_RANGE = buildRange(
+  [
+    'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66',
+    'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A5s', 'A4s', 'A3s',
     'KQs', 'KJs', 'KTs', 'K9s',
     'QJs', 'QTs', 'Q9s',
     'JTs', 'J9s',
     'T9s', 'T8s',
-    '98s', '87s',
+    '98s', '97s', '87s',
     'AKo', 'AQo', 'AJo', 'ATo',
     'KQo', 'KJo',
   ],
   {
-    '66': 0.9, '55': 0.6, '44': 0.3,
-    'A8s': 0.6, 'A7s': 0.5, 'A6s': 0.6, 'A2s': 0.5,
-    'K8s': 0.5, 'Q8s': 0.3,
-    'J8s': 0.4, '97s': 0.6, '76s': 0.7, '65s': 0.5,
-    'KTo': 0.7, 'QJo': 0.6, 'A9o': 0.5,
+    '55': 0.8, '44': 0.5, '33': 0.3,
+    'A7s': 0.7, 'A6s': 0.7, 'A2s': 0.6,
+    'K8s': 0.7, 'Q8s': 0.5,
+    'J8s': 0.6, '76s': 0.8, '65s': 0.7, '86s': 0.4,
+    'KTo': 0.9, 'QJo': 0.8, 'A9o': 0.7, 'QTo': 0.3,
   },
 );
 
-// ── BTN (Button) — widest open, ~40% ──────────────────────────────────
+// ── BTN (Button) — widest open, ~43% ──────────────────────────────────
 const BTN_RANGE = buildRange(
+  [
+    'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55', '44',
+    'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s',
+    'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s',
+    'JTs', 'J9s', 'J8s',
+    'T9s', 'T8s', 'T7s',
+    '98s', '97s', '96s',
+    '87s', '86s',
+    '76s', '75s',
+    '65s', '64s', '54s',
+    'AKo', 'AQo', 'AJo', 'ATo', 'A9o', 'A8o', 'A7o',
+    'KQo', 'KJo', 'KTo',
+    'QJo', 'QTo',
+    'JTo',
+  ],
+  {
+    '33': 0.9, '22': 0.7,
+    'K5s': 0.7, 'K4s': 0.5, 'K3s': 0.3,
+    'J7s': 0.6,
+    '85s': 0.6, '53s': 0.5, '43s': 0.5,
+    'A6o': 0.6, 'A5o': 0.7, 'A4o': 0.5, 'A3o': 0.3,
+    'K9o': 0.9, 'Q9o': 0.6, 'J9o': 0.6, 'T9o': 0.7, '98o': 0.3,
+  },
+);
+
+// ── SB (Small Blind) — raise or fold vs BB, ~44-48% ──────────────────
+const SB_RANGE = buildRange(
   [
     'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55',
     'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
-    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s',
-    'QJs', 'QTs', 'Q9s', 'Q8s',
+    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s',
+    'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s',
     'JTs', 'J9s', 'J8s',
     'T9s', 'T8s', 'T7s',
     '98s', '97s',
@@ -134,43 +162,14 @@ const BTN_RANGE = buildRange(
     'AKo', 'AQo', 'AJo', 'ATo', 'A9o', 'A8o',
     'KQo', 'KJo', 'KTo',
     'QJo', 'QTo',
-    'JTo',
   ],
   {
     '44': 0.9, '33': 0.7, '22': 0.5,
-    'K6s': 0.7, 'K5s': 0.6, 'K4s': 0.4,
-    'Q7s': 0.5, 'J7s': 0.4,
+    'K4s': 0.6, 'K3s': 0.4, 'K2s': 0.3,
+    'Q6s': 0.5, 'J7s': 0.5,
     '96s': 0.6, '85s': 0.5, '64s': 0.5, '53s': 0.4, '43s': 0.3,
-    'A7o': 0.6, 'A6o': 0.4, 'A5o': 0.5, 'A4o': 0.3,
-    'K9o': 0.7, 'Q9o': 0.4, 'J9o': 0.4, 'T9o': 0.5,
-  },
-);
-
-// ── SB (Small Blind) — raise or fold vs BB, ~40-45% ──────────────────
-const SB_RANGE = buildRange(
-  [
-    'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66',
-    'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
-    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s',
-    'QJs', 'QTs', 'Q9s', 'Q8s',
-    'JTs', 'J9s', 'J8s',
-    'T9s', 'T8s',
-    '98s', '97s',
-    '87s', '86s',
-    '76s', '75s',
-    '65s', '54s',
-    'AKo', 'AQo', 'AJo', 'ATo', 'A9o',
-    'KQo', 'KJo', 'KTo',
-    'QJo',
-  ],
-  {
-    '55': 0.9, '44': 0.7, '33': 0.5, '22': 0.4,
-    'K5s': 0.7, 'K4s': 0.5, 'K3s': 0.3,
-    'Q7s': 0.5, 'Q6s': 0.3,
-    'J7s': 0.4, 'T7s': 0.5,
-    '96s': 0.5, '85s': 0.4, '64s': 0.4, '53s': 0.3,
-    'A8o': 0.7, 'A7o': 0.5, 'A6o': 0.4, 'A5o': 0.6, 'A4o': 0.4, 'A3o': 0.3,
-    'K9o': 0.6, 'Q9o': 0.3, 'QTo': 0.5, 'JTo': 0.4, 'T9o': 0.3,
+    'A7o': 0.7, 'A6o': 0.5, 'A5o': 0.7, 'A4o': 0.5, 'A3o': 0.4, 'A2o': 0.3,
+    'K9o': 0.8, 'Q9o': 0.5, 'JTo': 0.6, 'T9o': 0.5, 'J9o': 0.3,
   },
 );
 
@@ -184,52 +183,52 @@ const BB_RANGE = buildRange(
   ],
   // Mixed 3-bet
   {
-    'JJ': 0.5, 'TT': 0.3,
-    'AJs': 0.5, 'ATs': 0.3, 'A5s': 0.4, 'A4s': 0.3,
-    'KQs': 0.4, 'KJs': 0.3,
-    'QJs': 0.2,
-    'AQo': 0.5, 'AJo': 0.2,
-    'KQo': 0.2,
+    'JJ': 0.6, 'TT': 0.4,
+    'AJs': 0.6, 'ATs': 0.4, 'A5s': 0.5, 'A4s': 0.4,
+    'KQs': 0.5, 'KJs': 0.4,
+    'QJs': 0.3, 'JTs': 0.2,
+    'AQo': 0.6, 'AJo': 0.3,
+    'KQo': 0.3,
   },
   // Always call
   [
-    'JJ', 'TT', '99', '88', '77', '66', '55', '44',
+    'JJ', 'TT', '99', '88', '77', '66', '55', '44', '33',
     'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
-    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s',
-    'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s',
+    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s', 'K4s',
+    'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'Q6s',
     'JTs', 'J9s', 'J8s', 'J7s',
-    'T9s', 'T8s', 'T7s',
+    'T9s', 'T8s', 'T7s', 'T6s',
     '98s', '97s', '96s',
     '87s', '86s', '85s',
-    '76s', '75s',
+    '76s', '75s', '74s',
     '65s', '64s',
     '54s', '53s',
     '43s',
-    'AQo', 'AJo', 'ATo', 'A9o',
+    'AQo', 'AJo', 'ATo', 'A9o', 'A8o',
     'KQo', 'KJo', 'KTo', 'K9o',
-    'QJo', 'QTo',
+    'QJo', 'QTo', 'Q9o',
     'JTo', 'J9o',
-    'T9o',
+    'T9o', 'T8o',
+    '98o',
   ],
   // Mixed call
   {
-    '33': 0.7, '22': 0.6,
-    'K4s': 0.5, 'K3s': 0.3,
-    'Q6s': 0.4, 'Q5s': 0.3,
-    'J6s': 0.3, 'T6s': 0.3,
-    '95s': 0.3, '84s': 0.3,
-    '74s': 0.3, '63s': 0.3,
-    '52s': 0.2, '42s': 0.2,
-    'A8o': 0.6, 'A7o': 0.4, 'A6o': 0.3, 'A5o': 0.4, 'A4o': 0.3,
-    'K8o': 0.3, 'Q9o': 0.4, 'J8o': 0.3, 'T8o': 0.3, '98o': 0.3,
+    '22': 0.8,
+    'K3s': 0.5, 'K2s': 0.3,
+    'Q5s': 0.4,
+    'J6s': 0.4,
+    '95s': 0.4, '84s': 0.4,
+    '63s': 0.4, '52s': 0.3, '42s': 0.3,
+    'A7o': 0.6, 'A6o': 0.4, 'A5o': 0.5, 'A4o': 0.4, 'A3o': 0.3,
+    'K8o': 0.5, 'Q8o': 0.3, 'J8o': 0.4, '87o': 0.3, '97o': 0.3,
   },
 );
 
 export const POSITIONS: PositionPreset[] = [
-  { name: 'Under the Gun', abbr: 'UTG', description: 'First to act, tightest range (~15%)', range: UTG_RANGE },
-  { name: 'Lojack',        abbr: 'LJ',  description: 'Second position, slightly wider (~18%)', range: LJ_RANGE },
-  { name: 'Cutoff',        abbr: 'CO',  description: 'One off the button (~25%)', range: CO_RANGE },
-  { name: 'Button',        abbr: 'BTN', description: 'Best position, wide range (~40%)', range: BTN_RANGE },
-  { name: 'Small Blind',   abbr: 'SB',  description: 'Raise or fold vs BB (~40-45%)', range: SB_RANGE },
+  { name: 'Under the Gun', abbr: 'UTG', description: 'First to act, tightest range (~18%)', range: UTG_RANGE },
+  { name: 'Lojack',        abbr: 'LJ',  description: 'Second position, slightly wider (~21%)', range: LJ_RANGE },
+  { name: 'Cutoff',        abbr: 'CO',  description: 'One off the button (~28%)', range: CO_RANGE },
+  { name: 'Button',        abbr: 'BTN', description: 'Best position, wide range (~43%)', range: BTN_RANGE },
+  { name: 'Small Blind',   abbr: 'SB',  description: 'Raise or fold vs BB (~46%)', range: SB_RANGE },
   { name: 'Big Blind',     abbr: 'BB',  description: 'Defending vs open — call-heavy', range: BB_RANGE },
 ];

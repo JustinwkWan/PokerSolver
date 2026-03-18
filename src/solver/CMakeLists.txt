@@ -1,3 +1,5 @@
+find_package(Threads REQUIRED)
+
 add_library(solver STATIC
     regret_store.cpp
     cfr_solver.cpp
@@ -5,4 +7,4 @@ add_library(solver STATIC
 )
 
 target_include_directories(solver PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(solver PUBLIC tree abstraction core)
+target_link_libraries(solver PUBLIC tree abstraction core Threads::Threads)
