@@ -41,6 +41,16 @@ add_executable(test_action_abstraction test_action_abstraction.cpp)
 target_link_libraries(test_action_abstraction PRIVATE abstraction core GTest::gtest_main)
 gtest_discover_tests(test_action_abstraction)
 
+# ── test_suit_isomorphism (Phase 3) ──────────────────────────────────
+add_executable(test_suit_isomorphism test_suit_isomorphism.cpp)
+target_link_libraries(test_suit_isomorphism PRIVATE abstraction core GTest::gtest_main)
+gtest_discover_tests(test_suit_isomorphism)
+
+# ── test_regret_store (Phase 4) ──────────────────────────────────────
+add_executable(test_regret_store test_regret_store.cpp)
+target_link_libraries(test_regret_store PRIVATE solver tree abstraction core GTest::gtest_main)
+gtest_discover_tests(test_regret_store)
+
 # ── test_game_tree (Phase 4) ───────────────────────────────────────────
 add_executable(test_game_tree test_game_tree.cpp)
 target_link_libraries(test_game_tree PRIVATE tree abstraction core GTest::gtest_main)

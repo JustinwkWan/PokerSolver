@@ -20,6 +20,8 @@ This is the master reference document for the solver project. All design decisio
 | Tree type | Explicit tree in flat arrays | Cache-friendly traversal, direct index into regret arrays |
 | Storage | Memory-mapped files | OS handles paging, don't need full blueprint in RAM |
 | Bet sizes | Start with 3 per action point | Keep tree small initially, increase after first working solution |
+| Suit isomorphism | Implement at chance nodes (Phase 3) | 4-6x average tree reduction with zero accuracy loss. Proven in Shark 2.0 |
+| Showdown evaluation | Two-pointer sweep on sorted hands | O(n+m) vs O(n×m) naive. Required for competitive CFR iteration speed |
 | Interface | CLI + clean library API | GUI later if needed |
 
 ### Risk: 300-500bb Stack Depth
@@ -235,6 +237,27 @@ These numbers directly determine memory usage and solve time. Double the buckets
 - At 100bb with 3 bet sizes, the tree is manageable. At 500bb, the tree gets much deeper because more raises fit before all-in.
 - Store the bet tree configuration in a simple config file (JSON or similar) so it's easy to change without recompiling.
 
+**Suit isomorphism (at chance nodes):**
+
+- At chance nodes (turn/river card deals), detect when two or more suits have identical strategic implications — i.e., swapping those suits across both players' hands and the board produces an equivalent game state.
+- When suits are isomorphic, only solve one "representative" suit; copy results to the symmetric cases via a swap permutation table.
+- **How to detect:** At each chance node, check whether any pair of suits can be swapped without changing any player's hand category or draw potential given the current board. On a rainbow flop with no flush draws, all suits not appearing on the board are interchangeable. On a two-tone flop, only the two non-board suits may be swappable.
+- **Savings by board texture:**
+
+| Board texture | Isomorphic suits | Tree reduction |
+|---------------|-----------------|----------------|
+| Rainbow flop (3 suits) | Up to 1 free suit | ~4-6x |
+| Two-tone flop (2 suits) | Up to 2 free suits | ~2-3x |
+| Monotone flop (1 suit) | None | ~1x (no savings) |
+| Turn (4 cards) | Varies | ~2-4x average |
+| River (5 cards) | Varies | ~1-2x average |
+
+- **Implementation:** Add an `IsomorphismDetector` that, given a board, returns which suits are interchangeable and the permutation maps. The tree builder uses this at chance nodes to prune duplicate subtrees. The solver copies results from solved subtrees to their isomorphic equivalents after each iteration.
+- **Reference implementation:** Shark 2.0's `IsomorphismComputer` in `src/solver/Isomorphism.hh` does exactly this and is a good reference.
+- This is a **zero-cost accuracy optimization** — no approximation, no information loss, just avoiding redundant computation.
+
+**Strategically distinct flops:** After applying suit isomorphism, there are only **1,755 strategically distinct flops** out of 22,100 possible flops (C(52,3)). For testing and validation, even smaller representative subsets can be used — GTO Wizard uses subsets of 25, 49, 85, or 184 representative flops that cover the major board textures. Use this to scope validation work: you don't need to test all flops, just a representative set that covers dry/wet/monotone/paired/connected textures.
+
 **Tradeoff: EMD approximation quality.** Exact multi-dimensional EMD is O(n^3) via linear programming. The fast approximation is O(n log n) and loses some accuracy. In practice, the approximation is close enough that it doesn't measurably affect play quality. Use the approximation.
 
 **Tradeoff: Imperfect recall.** Hands that are in the same bucket on the flop might have been distinguishable preflop. The solver "forgets" this distinction. This is standard practice and saves enormous memory. The cost is that the solver can't distinguish between, say, a hand that was strong preflop and got worse vs. one that was weak and got better. Deeper stack play (where preflop dynamics matter more) makes this tradeoff worse. Something to monitor.
@@ -314,13 +337,53 @@ struct ActionNode {
 - For intermediate monitoring, track average regret (cheaper but less informative).
 - Save checkpoints periodically (every million iterations or every hour). Solves can crash and losing days of compute is painful.
 
+**Nash distance targets:**
+
+Solve to concrete accuracy targets rather than just "decreasing exploitability." Nash distance is measured as a percentage of the pot — it represents the maximum EV an opponent could gain per hand by deviating from Nash.
+
+| Street | Target Nash Distance | Notes |
+|--------|---------------------|-------|
+| River | < 0.10% of pot | Small subgame, should converge tightly |
+| Turn | < 0.25% of pot | Moderate subgame |
+| Flop | < 0.50% of pot | Large subgame, more iterations needed |
+| Full game | < 0.30% of pot | Overall blueprint quality |
+
+These targets are based on GTO Wizard's published accuracy numbers. Solving below these thresholds means the strategy is effectively unexploitable in practice. Track Nash distance during convergence monitoring and terminate the solve when the target is reached rather than running a fixed number of iterations.
+
+**Two-pointer showdown evaluation:**
+
+At river terminal nodes (showdown), the solver must compute the EV for each hand in both players' ranges. This is the hottest operation in CFR — there are far more terminal nodes than any other type, and every CFR iteration visits them all.
+
+- **Naive approach:** Compare every hand in Player A's range against every hand in Player B's range. O(n×m) where n,m ≈ 1000 combos each = ~1M comparisons per terminal node. Far too slow.
+- **Two-pointer approach:**
+  1. Pre-sort both players' river hands by evaluated rank (using the hand evaluator)
+  2. Walk two pointers through the sorted lists simultaneously
+  3. Maintain a running sum of opponent hand weights already passed (which we beat)
+  4. Each hand's equity is the running sum divided by total opponent weight
+  5. Handle card removal (can't play the same cards) by subtracting blocked combos as you sweep
+
+```
+Sorted hands:      [Rank 1 (best)] ──────────> [Rank 7462 (worst)]
+
+Player A pointer:  ──>  (for each hand, running sum = what B hands we beat)
+Player B pointer:  ──>  (advance B pointer until B's rank > A's rank)
+
+EV(hand_a) = running_sum_of_beaten_B_hands / total_B_weight × pot
+```
+
+- **Complexity:** O(n log n) for sorting (once per board), O(n+m) for the sweep. ~2000 operations vs ~1M.
+- **Card removal during sweep:** When the current hand from Player A shares a card with a hand in Player B's range, that B-hand is impossible. Track this with a bitmask — subtract blocked combos from the running sum as you encounter them.
+- **Reference:** Shark 2.0's `CFRHelper.cpp` and `BestResponse.cpp` implement this with `RiverCombo` structs sorted by rank.
+
+This is not optional — without it, CFR iteration speed will be orders of magnitude below the >10 iterations/sec target.
+
 **Best practices:**
 
 - Profile early. Run the solver for 1000 iterations, identify the hottest functions, optimize those first.
-- The three biggest performance bottlenecks are usually: (1) tree traversal cache misses, (2) regret array random access patterns, (3) hand evaluation during terminal node resolution.
+- The three biggest performance bottlenecks are usually: (1) tree traversal cache misses, (2) regret array random access patterns, (3) showdown evaluation at terminal nodes (solved by two-pointer sweep above).
 - Compile with -O3 -march=native. Enable link-time optimization.
 
-**Deliverable:** Solver runs on a 100bb NLHE abstraction, converges to measurably decreasing exploitability over millions of iterations. Strategy files can be saved and loaded.
+**Deliverable:** Solver runs on a 100bb NLHE abstraction, converges to Nash distance targets (see above) over millions of iterations. Strategy files can be saved and loaded.
 
 **Status:** [ ] Not started
 
@@ -356,6 +419,17 @@ struct ActionNode {
 - Without good action translation, opponents can exploit your abstraction by betting weird sizes.
 
 **Tradeoff: Solve depth.** Solving from the river is fast (seconds). Solving from the turn is slower (minutes). Solving from the flop in real time is difficult at deep stacks. Start with river-only re-solving and expand backward.
+
+**Future enhancement: Depth-limited solving with value estimation.**
+
+GTO Wizard's "Fast Mode" uses a more advanced approach: instead of solving from the current decision point all the way to showdown, it solves only a short lookahead (a few actions deep) and uses **neural networks to estimate the remaining game value at the leaf nodes**. As play progresses, it re-solves from each newly reached decision point. This is the approach used by Pluribus (Noam Brown, 2019).
+
+Benefits:
+- Dramatically faster: GTO Wizard reports 0.22% accuracy in 6 seconds on 2 cores vs PioSolver's ~80 minutes on 16 cores for comparable accuracy
+- Can handle unrestricted bet sizes (no action abstraction needed)
+- Naturally handles deep stacks where full-depth solving is intractable
+
+This requires training a neural network on millions of self-play hands to produce accurate value estimates — a significant ML infrastructure investment. Not planned for v1, but worth considering if the traditional subgame solving in this phase proves too slow for real-time use at deep stacks.
 
 **Deliverable:** Given a game state and blueprint, produce a refined strategy. Measure exploitability improvement vs. blueprint-only play.
 
@@ -620,6 +694,44 @@ poker-solver query --player "Villain" --mode full-model --hand "AhKs" --board "T
 
 ---
 
+### Nodelocking (Shared Feature — Phases 7 & 8)
+
+**What it is:** The user manually locks one player's strategy at specific decision nodes in the game tree, and the solver computes the optimal counter-strategy against that locked behavior. This complements the automated archetype/modeling approach by letting users directly specify "what if villain always c-bets here?" or "what if villain never folds to 3-bets?"
+
+**How it works:**
+1. User selects a decision node in the game tree
+2. User locks the opponent's strategy at that node — either by setting specific hand→action assignments or by adjusting action frequencies (e.g., "villain bets 80% here instead of Nash 55%")
+3. Locked nodes stay frozen; all other nodes are re-solved to find the best response
+4. The solver outputs the maximally exploitative counter-strategy
+
+**Implementation:**
+- Reuses the best-response computation from Phase 8 (`exploit/best_response`)
+- Add a `nodelock` module that:
+  - Accepts a list of (node_id, locked_strategy) pairs
+  - Modifies the opponent's strategy at those nodes
+  - Runs best-response computation with the modified strategy fixed
+  - Reports EV gain from exploitation vs Nash
+
+**Important caveat (from GTO Wizard's experience):** Exploits cascade unpredictably through the tree. Locking a villain's flop c-bet frequency might cause the optimal exploit to appear at a completely different decision point — e.g., changing our preflop 3-bet range rather than our flop response. This is mathematically correct but unintuitive. Users should be warned that the exploit may not appear "where they expect."
+
+**CLI:**
+
+```bash
+# Lock villain's strategy at a specific node
+poker-solver nodelock --blueprint data/strategy/ \
+  --node "flop:IP:cbet" --board "Td9c2h" \
+  --lock "bet=0.80,check=0.20" \
+  --hand "AhKs"
+
+# Output shows the adjusted strategy and EV gain
+# EV gain vs Nash: +2.3 bb/100 in this spot
+# Key adjustment: increase 3-bet frequency preflop with suited connectors
+```
+
+**Status:** [ ] Not started
+
+---
+
 ### Cross-Cutting Concerns for Phases 7 & 8
 
 These considerations affect the design of both exploitation phases and should be addressed during implementation.
@@ -798,13 +910,14 @@ Every module gets tested before the next one starts. No exceptions.
 | strategy blend | Bounded exploit | Exploitability of blended strategy < 2x Nash exploitability |
 | opponent model (Phase 8) | Bayesian update | Posterior converges to true frequencies with 20K+ synthetic hands |
 | best response (Phase 8) | Known exploits | Correctly max-bets vs opponent that always folds; always folds vs opponent that never bluffs |
+| nodelock | Locked node exploit | EV of counter-strategy ≥ Nash EV against any locked opponent deviation |
+| DCFR (NLHE) convergence | Nash distance | Reaches target Nash distance per street (river <0.10%, turn <0.25%, flop <0.50%) |
 
 ---
 
 ## Open Questions (Decide As We Go)
 
 - **Board abstraction:** Should we also cluster board textures (e.g., treat monotone boards similarly)? This is an orthogonal compression axis. Defer until we see memory usage.
-- **Isomorphism:** How aggressively to exploit suit isomorphism postflop? Full isomorphism detection is complex but can reduce the tree by 4-24x depending on the board.
 - **Warm starting:** Can we warm-start a finer solve from a coarser one? Brown & Sandholm (2016) showed this works. Implement if solve times get painful.
 - **Pruning:** DCFR naturally prunes negative-regret actions. Additional pruning (skipping subtrees where regrets are very negative) can give 2-10x speedup. Add in Phase 4 optimization.
 - **River solve shortcut:** River subgames are small enough to solve to near-zero exploitability. Consider always re-solving the river rather than using blueprint river play. This is what most commercial solvers do.
@@ -816,3 +929,5 @@ Every module gets tested before the next one starts. No exceptions.
 
 - 2026-03-17: Initial document created with all design decisions and phase plan.
 - 2026-03-17: Added Phase 7 (archetype-based exploitation), Phase 8 (full opponent modeling at 20K+ hands), and cross-cutting concerns (hand history formats, position-dependent modeling, stack-depth segmentation, multi-way handling, bet sizing tells, card removal, anonymous tracking, solver validation).
+- 2026-03-18: Added suit isomorphism (Phase 3, locked-in decision) and two-pointer showdown evaluation (Phase 4) based on analysis of Shark 2.0 solver. Removed isomorphism from open questions.
+- 2026-03-18: Added Nash distance targets (Phase 4), depth-limited solving future enhancement (Phase 5), nodelocking (Phases 7/8), and 1,755 distinct flops reference (Phase 3) based on GTO Wizard analysis.

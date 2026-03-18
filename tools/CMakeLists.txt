@@ -1,0 +1,2 @@
+add_executable(build_abstraction build_abstraction.cpp)
+target_link_libraries(build_abstraction PRIVATE abstraction core)
