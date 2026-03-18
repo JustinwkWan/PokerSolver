@@ -126,7 +126,7 @@ Build order is constrained by these dependencies:
 - Use a lookup-table based evaluator. The 2+2 evaluator (36MB table, fastest possible) or OMPEval (200KB table via perfect hashing, nearly as fast) are the two best options.
 - Evaluate 7-card hands (2 hole + 5 board) returning a 16-bit rank where higher is better.
 - The evaluator will be called billions of times during abstraction computation. Benchmark target: < 10 nanoseconds per evaluation on modern hardware.
-- Consider integrating an existing library (OMPEval) rather than writing from scratch. The algorithm is well-understood but fiddly to implement and easy to get subtly wrong.
+- Consider integrating an existing library (OMPEval) rather than writing from scratch. The algorithm is well-understood but fiddly to implement and easy to get subtly wrong./
 
 **Best practice:** Write a test that enumerates all 133,784,560 possible 7-card hands and verifies the rank distribution matches known hand frequencies (e.g., exactly 4,324 four-of-a-kind hands out of the total).
 
@@ -443,6 +443,269 @@ poker-solver subgame --blueprint data/strategy/ --hand "AhKs" --board "Td9c2h7d"
 
 ---
 
+### Phase 7: Archetype-Based Exploitation (Post-Release)
+
+**Goal:** Classify opponents into behavioral archetypes based on observed tendencies, then apply pre-solved exploitative strategies for each archetype. Requires minimal data (100-500 hands) and avoids overfitting by discretizing tendencies into coarse buckets rather than estimating exact frequencies.
+
+**Core Insight:** "Does this player bluff too much or too little?" is answerable in far fewer hands than "what is their exact bluff frequency on river check-raises?" By bucketing opponents into archetypes, we only need enough data to classify — not to estimate precisely.
+
+**Architecture:**
+
+```
+[Hand History] ──> [Stat Tracker] ──> [Tendency Scores]
+                                           │
+                                    ┌──────┴──────┐
+                                    ▼              ▼
+                              [Classifier]    [Confidence]
+                                    │              │
+                                    ▼              ▼
+                         [Archetype ID] ──> [Blend Weight α]
+                                    │
+                                    ▼
+                    [Pre-solved Response Table]
+                         arch_0: Nash (default)
+                         arch_1: vs tight-passive
+                         arch_2: vs loose-aggressive
+                         ...
+                                    │
+                                    ▼
+                        [Blended Strategy]
+              σ = (1-α)·σ_nash + α·σ_archetype
+```
+
+**Classification Dimensions:**
+
+| Dimension | What it measures | How to observe |
+|-----------|-----------------|----------------|
+| **Tightness** (tight ↔ loose) | How many hands they play | VPIP — visible from any hand |
+| **Aggression** (passive ↔ aggressive) | Bet/raise frequency vs check/call frequency | PFR, AF ratio — visible from any hand |
+| **Bluff frequency** (underbluffs ↔ overbluffs) | Ratio of bluffs to value bets | Requires showdown data — slower to estimate |
+| **Fold-to-pressure** (calling station ↔ folder) | How often they fold to bets/raises | Fold-to-cbet, fold-to-3bet — visible when we bet |
+
+Start with **2 dimensions** (tight/loose × passive/aggressive) for a 3×3 grid of 9 archetypes. Add bluff frequency as a third axis when showdown data accumulates.
+
+**Archetypes (initial 2D grid):**
+
+| | Passive | Neutral | Aggressive |
+|---|---------|---------|------------|
+| **Tight** | Nit | TAG | Aggro-nit |
+| **Neutral** | Passive reg | Nash-like | Aggressive reg |
+| **Loose** | Calling station | Loose-passive fish | Maniac |
+
+**Modules:**
+
+| Module | Description |
+|--------|-------------|
+| `exploit/hand_history` | Parse and store observed hands + actions from hand history files |
+| `exploit/stat_tracker` | Compute running stats (VPIP, PFR, AF, fold-to-cbet, etc.) from observed hands |
+| `exploit/classifier` | Map tendency scores to archetype ID + confidence level |
+| `exploit/archetype_solver` | Offline: solve best-response strategy against each archetype's synthetic strategy |
+| `exploit/strategy_blend` | Blend Nash and archetype response: σ = (1-α)·σ_nash + α·σ_archetype, where α scales with classification confidence |
+
+**Key Design Decisions:**
+
+- **Pre-solved responses:** Best-response strategies for each archetype are computed offline against synthetic opponent strategies that represent each archetype. At runtime it's just classify + lookup + blend. No solving needed in real-time.
+- **Graceful degradation:** With very few hands, confidence is low, α is near 0, and we play Nash. As data accumulates, we classify more confidently and blend more toward the archetype response.
+- **Coarse buckets prevent overfitting:** We only need to answer "which quadrant?" not "what exact frequency?" — this is robust even with 100-500 hands of data.
+- **Recency weighting:** Decay older observations so classification adapts if opponent adjusts.
+
+**Compute Estimates:**
+
+| Task | Time | Memory | When |
+|------|------|--------|------|
+| Pre-solve 9 archetype responses | 9 × single tree traversal, minutes total | Same as blueprint query × 9 | Offline, once |
+| Stat tracking (n hands) | O(n), milliseconds | Negligible | Per session |
+| Classification | O(1), microseconds | Negligible | Per query |
+| Strategy lookup + blend | O(1), microseconds | One strategy table per archetype in memory | Per query |
+
+**Deliverable:** Pre-solved archetype response table + CLI commands to classify and query.
+
+```bash
+# Import hand histories
+poker-solver import-hands --file villain_hands.csv --player "Villain"
+
+# Classify opponent
+poker-solver classify --player "Villain"
+# Output: Archetype: loose-aggressive (confidence: 0.82)
+#         VPIP: 38% | PFR: 29% | AF: 3.1 | Fold-to-cbet: 35%
+
+# Query exploitative strategy for a spot
+poker-solver query --player "Villain" --hand "AhKs" --board "Td9c2h" --history "rc"
+```
+
+**Status:** [ ] Not started
+
+---
+
+### Phase 8: Full Opponent Modeling (20K+ Hands)
+
+**Goal:** When a large dataset of opponent hands is available (20K+), build a precise per-node opponent model and compute a tailored best-response strategy. This goes beyond archetype classification to exploit the specific nuances of an individual player's strategy.
+
+**Prerequisites:** Phase 7 complete. This phase reuses `exploit/hand_history` and `exploit/strategy_blend` from Phase 7 but adds fine-grained modeling.
+
+**When to Use Phase 8 vs Phase 7:**
+
+| | Phase 7: Archetypes | Phase 8: Full Model |
+|---|---------------------|---------------------|
+| **Data needed** | 100-500 hands | 20,000+ hands |
+| **Overfitting risk** | Low (coarse buckets) | Moderate (mitigated by Bayesian priors) |
+| **Exploit precision** | Coarse — exploits general tendencies | Fine — exploits specific spot-by-spot leaks |
+| **Compute at query time** | Lookup (microseconds) | Best-response tree traversal (seconds) |
+| **Use case** | Live play, new opponents | Long-term rivals, study/analysis |
+
+**Architecture:**
+
+```
+[Hand History DB]  ──>  [Opponent Modeler]  ──>  [Opponent Strategy σ_opp]
+        (20K+ hands)          │
+                              ├── Frequency counting per abstract bucket
+                              ├── Bayesian prior (initialize from Nash blueprint)
+                              └── Confidence estimation per decision point
+                                        │
+                                        ▼
+[Nash Blueprint] ──>  [Best-Response Solver]  ──>  [Blended Strategy]
+                              │
+                              ├── Best-response tree traversal (single pass DP)
+                              ├── Confidence-weighted blending with Nash
+                              └── Exploitability bound check
+```
+
+**Modules:**
+
+| Module | Description |
+|--------|-------------|
+| `exploit/opponent_model` | Estimate full opponent strategy σ_opp from observations using Bayesian updating with Nash prior. Per-node frequency estimates with confidence intervals. |
+| `exploit/best_response` | Compute best-response strategy against fixed σ_opp via single-pass dynamic programming over the game tree |
+| `exploit/confidence` | Per-node confidence scoring: nodes with <N observations fall back to archetype or Nash |
+
+**Key Design Decisions:**
+
+- **Bayesian priors from Nash:** Initialize opponent model at Nash equilibrium, update with observations. With 20K hands, most common decision points will have enough data to move significantly from the prior.
+- **Hierarchical fallback:** For decision points with insufficient data, fall back to Phase 7 archetype classification rather than Nash. This gets the best of both phases.
+- **Bounded exploitation:** Never go full best-response. σ = (1-α)·σ_nash + α·σ_br, where α scales with per-node confidence.
+- **Recency weighting:** Exponential decay on older hands so the model reflects current tendencies.
+
+**Pitfalls:**
+
+1. **Data sparsity on later streets** — Even with 20K hands, river spots in specific lines may have <10 observations. Hierarchical fallback to archetype handles this.
+2. **Opponent adjustment** — Long-term rivals adjust. Recency weighting and periodic model refresh are essential.
+3. **Exploitability tradeoff** — Must monitor our own exploitability. If our blended strategy is >2x Nash exploitability, reduce α.
+
+**Compute Estimates:**
+
+| Task | Time | Memory |
+|------|------|--------|
+| Opponent model construction (20K hands) | O(n), seconds | ~50-100 MB for full node frequency table |
+| Best-response computation | Single tree traversal, 1-10 seconds | Same as blueprint query |
+| Bayesian range update per hand | O(1326 × actions), milliseconds | Negligible |
+| Full model rebuild | Seconds | ~100 MB |
+
+**Deliverable:** CLI commands for full opponent modeling and precise exploitation.
+
+```bash
+# Build full opponent model (requires 20K+ hands)
+poker-solver model-player --player "Villain" --blueprint data/strategy/ --min-hands 20000
+
+# Show per-spot deviations from Nash
+poker-solver analyze-player --player "Villain" --board "Td9c2h" --history "rc"
+# Output: Villain folds 62% here (Nash: 45%) — confidence: high (n=847)
+#         Villain raises 8% here (Nash: 15%) — confidence: medium (n=847)
+#         Recommended exploit: increase bluff frequency by 35%
+
+# Query fully modeled exploitative strategy
+poker-solver query --player "Villain" --mode full-model --hand "AhKs" --board "Td9c2h" --history "rc"
+```
+
+**Status:** [ ] Not started
+
+---
+
+### Cross-Cutting Concerns for Phases 7 & 8
+
+These considerations affect the design of both exploitation phases and should be addressed during implementation.
+
+#### Hand History Format Support
+
+Real hand histories come in wildly different formats per site (PokerStars, GGPoker, Winamax, Ignition, etc.). Each has its own text format with different conventions for actions, stakes, and player identification.
+
+**Decision:** Define a standardized internal format and write per-site parsers. The `exploit/hand_history` module should:
+1. Accept a clean internal format (CSV or JSON with defined schema) as the canonical input
+2. Provide converter plugins for major sites (PokerStars format first — most widely used and documented)
+3. Support PokerTracker/Hand2Note database exports as an alternative input path
+
+#### Position-Dependent Modeling
+
+A player who is a nit UTG might be a maniac on the button. Tendencies vary significantly by position. Averaging across positions destroys signal.
+
+**Decision:** All stat tracking and archetype classification must be **segmented by position**, or at minimum split into IP (in position) vs OOP (out of position). This means:
+- Phase 7: Archetype classification is per-position. A player could be classified as TAG when IP but passive-calling-station when OOP.
+- Phase 8: Per-node frequency estimates naturally handle this since the game tree encodes position, but the confidence thresholds need to account for the data being split across positions (effectively dividing your sample size by ~2-6x).
+
+#### Stack-Depth Segmentation
+
+Players behave differently at 40bb vs 200bb. A hand history database spanning different stack depths will muddy the model.
+
+**Decision:** Segment observations by effective stack depth buckets. Suggested initial buckets:
+- Short stack: < 50bb
+- Medium stack: 50-150bb
+- Deep stack: > 150bb
+
+Filter hand histories to the relevant stack depth range when building the model. If insufficient data exists for a specific depth, fall back to the nearest bucket or Nash.
+
+#### Multi-Way Pot Handling
+
+The solver is heads-up only, but real hand histories include multi-way pots. These hands still contain useful information about opponent tendencies.
+
+**Decision:** Extract what we can from multi-way hands but flag the data as lower confidence:
+- **Preflop stats** (VPIP, PFR, 3-bet frequency) are still valid from multi-way hands
+- **Postflop tendencies** from multi-way pots are less reliable for heads-up modeling — a player may check a strong hand multi-way that they'd bet heads-up
+- Tag multi-way observations with a lower confidence weight (e.g., 0.5x) when feeding into the model
+- Allow CLI flag to include/exclude multi-way data: `--multiway include|exclude|downweight`
+
+#### Bet Sizing Tells
+
+Tracking only action type (fold/call/raise) misses a rich exploitation axis — **how much** a player bets/raises. Many players have sizing patterns correlated with hand strength.
+
+**Decision:** Track bet sizing as a fraction of pot in addition to action type. Add sizing dimensions to the stat tracker:
+- Small bet (< 40% pot)
+- Medium bet (40-75% pot)
+- Large bet (75-125% pot)
+- Overbet (> 125% pot)
+
+Phase 7 archetypes can include a "sizing tell" flag (e.g., "small bet = nutted, big bet = polarized"). Phase 8 can model sizing distributions per node.
+
+#### Card Removal in Opponent Modeling (Phase 8)
+
+When estimating what hands an opponent would take a specific line with, our own holding blocks certain combos. If we hold A♠K♠, the opponent can't have A♠A♣.
+
+**Decision:** The `exploit/opponent_model` module must apply card removal (also called "blockers") when computing the opponent's range distribution at each node. This is critical for Phase 8 correctness. Steps:
+1. Start with the full prior range (Nash frequencies or Bayesian posterior)
+2. Zero out combos that conflict with our known cards and board cards
+3. Renormalize the remaining range
+4. Compute best response against the blocker-adjusted range
+
+This is already standard in the core solver's equity calculations — reuse the same card removal logic.
+
+#### Anonymous Player Tracking
+
+On sites like Ignition/Bovada, players are anonymous — you cannot track the same player across sessions. This limits the data available for modeling.
+
+**Decision:** Support two modes:
+- **Identified mode:** Track a named player across sessions (PokerStars, GGPoker, etc.). Full Phase 7 and 8 capabilities.
+- **Session-only mode:** For anonymous sites, build a model from the current session only. This limits you to Phase 7 archetype classification (unlikely to get 20K+ hands in one session). The classifier should be tuned to work well with smaller samples (100-500 hands) for this use case.
+
+#### Solver Validation Against Known Solvers
+
+For NLHE there is no closed-form Nash equilibrium to validate against. The only way to verify correctness is comparison against established solvers.
+
+**Decision:** Add a validation step in Phase 4 (Full NLHE Solver):
+- Pick 10-20 specific spots (varying board textures, stack depths, action sequences)
+- Solve each spot with our solver and with PioSolver/GTO+
+- Compare strategies — frequencies should be within a tolerance (e.g., ±5% for actions with >10% frequency)
+- Document these comparison spots as regression tests
+
+---
+
 ## Compute Estimates
 
 These are rough estimates. Actual numbers depend heavily on abstraction granularity.
@@ -529,6 +792,12 @@ Every module gets tested before the next one starts. No exceptions.
 | game_tree | Tree size | Matches theoretical node count for simple configs |
 | DCFR (NLHE) | Convergence | Exploitability decreasing over iterations |
 | subgame solver | Improvement | Lower exploitability than blueprint alone |
+| stat tracker | Known player types | Correctly computes VPIP, PFR, AF from synthetic hand histories |
+| classifier | Archetype mapping | Classifies synthetic nit/TAG/LAG/maniac correctly with 200+ hands |
+| archetype solver | Pre-solved responses | Each archetype response beats Nash EV against its target archetype |
+| strategy blend | Bounded exploit | Exploitability of blended strategy < 2x Nash exploitability |
+| opponent model (Phase 8) | Bayesian update | Posterior converges to true frequencies with 20K+ synthetic hands |
+| best response (Phase 8) | Known exploits | Correctly max-bets vs opponent that always folds; always folds vs opponent that never bluffs |
 
 ---
 
@@ -539,9 +808,11 @@ Every module gets tested before the next one starts. No exceptions.
 - **Warm starting:** Can we warm-start a finer solve from a coarser one? Brown & Sandholm (2016) showed this works. Implement if solve times get painful.
 - **Pruning:** DCFR naturally prunes negative-regret actions. Additional pruning (skipping subtrees where regrets are very negative) can give 2-10x speedup. Add in Phase 4 optimization.
 - **River solve shortcut:** River subgames are small enough to solve to near-zero exploitability. Consider always re-solving the river rather than using blueprint river play. This is what most commercial solvers do.
+- **Rake adjustment:** The solver currently assumes zero-rake. Rake changes optimal strategy (tighter preflop, smaller pots less profitable). Defer to a future phase — get the zero-rake solver working first, then add rake-adjusted equilibria later.
 
 ---
 
 ## Changelog
 
 - 2026-03-17: Initial document created with all design decisions and phase plan.
+- 2026-03-17: Added Phase 7 (archetype-based exploitation), Phase 8 (full opponent modeling at 20K+ hands), and cross-cutting concerns (hand history formats, position-dependent modeling, stack-depth segmentation, multi-way handling, bet sizing tells, card removal, anonymous tracking, solver validation).

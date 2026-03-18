@@ -44,4 +44,6 @@ FetchContent_MakeAvailable(googletest)
 
 # ── Subdirectories ─────────────────────────────────────────────────────────
 add_subdirectory(src/core)
+add_subdirectory(src/abstraction)
+add_subdirectory(src/tree)
 add_subdirectory(tests)
