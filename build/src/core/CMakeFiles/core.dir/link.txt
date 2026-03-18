@@ -1,2 +1,0 @@
-/usr/bin/ar qc libcore.a CMakeFiles/core.dir/cards.cpp.o CMakeFiles/core.dir/hand_evaluator.cpp.o CMakeFiles/core.dir/game_state.cpp.o
-/usr/bin/ranlib libcore.a
