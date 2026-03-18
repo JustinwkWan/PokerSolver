@@ -1,0 +1,2 @@
+/usr/bin/ar qc libomp_eval.a "CMakeFiles/omp_eval.dir/_deps/ompeval-src/omp/HandEvaluator.cpp.o" "CMakeFiles/omp_eval.dir/_deps/ompeval-src/omp/CardRange.cpp.o"
+/usr/bin/ranlib libomp_eval.a

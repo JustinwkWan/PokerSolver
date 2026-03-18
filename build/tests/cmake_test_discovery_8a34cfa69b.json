@@ -1,0 +1,84 @@
+{
+  "tests": 12,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "Cards",
+      "tests": 4,
+      "testsuite": [
+        {
+          "name": "RankSuitRoundtrip",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 9
+        },
+        {
+          "name": "AllCardsUnique",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 20
+        },
+        {
+          "name": "StringRoundtrip",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 28
+        },
+        {
+          "name": "KnownCards",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 37
+        }
+      ]
+    },
+    {
+      "name": "Deck",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "DealAll52",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 56
+        },
+        {
+          "name": "Reset",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 69
+        },
+        {
+          "name": "ShuffleProducesVariation",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 77
+        }
+      ]
+    },
+    {
+      "name": "CanonicalHand",
+      "tests": 5,
+      "testsuite": [
+        {
+          "name": "Pairs",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 93
+        },
+        {
+          "name": "Suited",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 108
+        },
+        {
+          "name": "Offsuit",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 118
+        },
+        {
+          "name": "Exactly169Distinct",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 128
+        },
+        {
+          "name": "Symmetry",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_cards.cpp",
+          "line": 141
+        }
+      ]
+    }
+  ]
+}

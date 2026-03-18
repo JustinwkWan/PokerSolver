@@ -1,0 +1,22 @@
+{
+  "tests": 2,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "Kuhn",
+      "tests": 2,
+      "testsuite": [
+        {
+          "name": "ConvergesToNashValue",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_kuhn.cpp",
+          "line": 142
+        },
+        {
+          "name": "StrategyProperties",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_kuhn.cpp",
+          "line": 164
+        }
+      ]
+    }
+  ]
+}

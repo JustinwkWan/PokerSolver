@@ -1,0 +1,5 @@
+add_test([=[Kuhn.ConvergesToNashValue]=]  [==[/Users/justinwan/Documents/Vscode Projects/PokerSolver/build/tests/test_kuhn]==] [==[--gtest_filter=Kuhn.ConvergesToNashValue]==] --gtest_also_run_disabled_tests)
+set_tests_properties([=[Kuhn.ConvergesToNashValue]=]  PROPERTIES DEF_SOURCE_LINE [==[/Users/justinwan/Documents/Vscode Projects/PokerSolver/tests/test_kuhn.cpp:142]==] WORKING_DIRECTORY [==[/Users/justinwan/Documents/Vscode Projects/PokerSolver/build/tests]==] SKIP_REGULAR_EXPRESSION [==[\[  SKIPPED \]]==])
+add_test([=[Kuhn.StrategyProperties]=]  [==[/Users/justinwan/Documents/Vscode Projects/PokerSolver/build/tests/test_kuhn]==] [==[--gtest_filter=Kuhn.StrategyProperties]==] --gtest_also_run_disabled_tests)
+set_tests_properties([=[Kuhn.StrategyProperties]=]  PROPERTIES DEF_SOURCE_LINE [==[/Users/justinwan/Documents/Vscode Projects/PokerSolver/tests/test_kuhn.cpp:164]==] WORKING_DIRECTORY [==[/Users/justinwan/Documents/Vscode Projects/PokerSolver/build/tests]==] SKIP_REGULAR_EXPRESSION [==[\[  SKIPPED \]]==])
+set(  test_kuhn_TESTS Kuhn.ConvergesToNashValue Kuhn.StrategyProperties)

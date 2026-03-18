@@ -1,0 +1,5 @@
+if(EXISTS "/Users/justinwan/Documents/Vscode Projects/PokerSolver/build/tests/test_hand_eval[1]_tests.cmake")
+  include("/Users/justinwan/Documents/Vscode Projects/PokerSolver/build/tests/test_hand_eval[1]_tests.cmake")
+else()
+  add_test(test_hand_eval_NOT_BUILT test_hand_eval_NOT_BUILT)
+endif()

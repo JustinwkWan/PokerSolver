@@ -1,0 +1,17 @@
+{
+  "tests": 1,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "Leduc",
+      "tests": 1,
+      "testsuite": [
+        {
+          "name": "ConvergesToLowExploitability",
+          "file": "\/Users\/justinwan\/Documents\/Vscode Projects\/PokerSolver\/tests\/test_leduc.cpp",
+          "line": 513
+        }
+      ]
+    }
+  ]
+}

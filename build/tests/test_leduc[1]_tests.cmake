@@ -1,0 +1,3 @@
+add_test([=[Leduc.ConvergesToLowExploitability]=]  [==[/Users/justinwan/Documents/Vscode Projects/PokerSolver/build/tests/test_leduc]==] [==[--gtest_filter=Leduc.ConvergesToLowExploitability]==] --gtest_also_run_disabled_tests)
+set_tests_properties([=[Leduc.ConvergesToLowExploitability]=]  PROPERTIES DEF_SOURCE_LINE [==[/Users/justinwan/Documents/Vscode Projects/PokerSolver/tests/test_leduc.cpp:513]==] WORKING_DIRECTORY [==[/Users/justinwan/Documents/Vscode Projects/PokerSolver/build/tests]==] SKIP_REGULAR_EXPRESSION [==[\[  SKIPPED \]]==])
+set(  test_leduc_TESTS Leduc.ConvergesToLowExploitability)
