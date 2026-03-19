@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/game_state.h"  // for kMaxPlayers
 #include "tree/info_set.h"
 
 #include <array>
@@ -28,7 +29,7 @@ public:
     // Create a new store with the given sizing. If dir is non-empty, files are
     // created in that directory. If dir is empty, uses anonymous mmap (in-memory).
     RegretStore(uint64_t num_info_sets, int max_actions,
-                const std::string& dir = "");
+                const std::string& dir = "", int num_players = 2);
 
     // Load an existing store from a directory (checkpoint resume).
     static RegretStore load(const std::string& dir);
@@ -92,23 +93,27 @@ public:
     int maxActions() const { return max_actions_; }
     uint64_t totalEntries() const { return num_info_sets_ * max_actions_; }
     uint64_t bytesPerArray() const { return totalEntries() * sizeof(float); }
-    uint64_t totalBytes() const { return bytesPerArray() * 4; }  // 4 arrays
+    int numPlayers() const { return num_players_; }
+    uint64_t totalBytes() const { return bytesPerArray() * num_players_ * 2; }
 
 private:
     uint64_t num_info_sets_ = 0;
     int max_actions_ = 0;
+    int num_players_ = 2;
 
     // Pointers into mmap'd regions (or heap-allocated for anonymous mode).
-    std::array<float*, 2> regrets_  = {nullptr, nullptr};
-    std::array<float*, 2> strategy_ = {nullptr, nullptr};
+    // regrets_[p] and strategy_[p] for each player p.
+    std::array<float*, kMaxPlayers> regrets_  = {};
+    std::array<float*, kMaxPlayers> strategy_ = {};
 
-    // mmap bookkeeping.
+    // mmap bookkeeping: regions_[p] = regrets for player p,
+    //                   regions_[num_players_ + p] = strategy for player p.
     struct MmapRegion {
         void* addr = nullptr;
         size_t size = 0;
         int fd = -1;
     };
-    std::array<MmapRegion, 4> regions_;  // [p0_reg, p1_reg, p0_strat, p1_strat]
+    std::array<MmapRegion, kMaxPlayers * 2> regions_;
     bool anonymous_ = true;
     std::string dir_;
 

@@ -40,9 +40,12 @@ struct TreeNode {
 
 class GameTree {
 public:
-    GameTree(int stack_size, const ActionAbstraction& aa);
+    GameTree(int stack_size, const ActionAbstraction& aa,
+             int num_players = 2);
 
     void build();
+
+    int numPlayers() const { return num_players_; }
 
     // ── Access ──────────────────────────────────────────────────────────
     const TreeNode& root() const       { return nodes_[0]; }
@@ -68,6 +71,7 @@ private:
     std::vector<Action>     actions_;   // actions_[children_start + i]  = action for child i
 
     int stack_size_;
+    int num_players_;
     ActionAbstraction aa_;
 
     uint32_t info_set_counter_  = 0;

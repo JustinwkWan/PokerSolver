@@ -10,7 +10,7 @@ SubgameResult SubgameSolver::solve(
         const ActionAbstraction& aa,
         const std::array<int, 4>& buckets,
         const CFRSolver::BucketFunc& bucket_func,
-        const std::array<std::array<Card, 2>, 2>& hole,
+        const std::array<std::array<Card, 2>, kMaxPlayers>& hole,
         const std::array<Card, 5>& board,
         const SubgameConfig& config) {
 

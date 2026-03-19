@@ -227,3 +227,57 @@ TEST(GameTree, ShowdownTerminalsExist) {
     }
     EXPECT_TRUE(has_showdown) << "Should have showdown terminal nodes";
 }
+
+// ── 3-player tree tests ──────────────────────────────────────────────────
+
+TEST(GameTree, ThreePlayerBuilds) {
+    BetSizeConfig cfg;
+    cfg.preflop = {1.0};
+    cfg.flop = {1.0};
+    cfg.turn = {1.0};
+    cfg.river = {1.0};
+    GameTree tree(200, ActionAbstraction(cfg), 3);
+    tree.build();
+
+    EXPECT_GT(tree.numNodes(), 0u);
+    EXPECT_GT(tree.numActionNodes(), 0u);
+    EXPECT_GT(tree.numTerminalNodes(), 0u);
+    EXPECT_EQ(tree.numPlayers(), 3);
+}
+
+TEST(GameTree, ThreePlayerLargerThanHU) {
+    BetSizeConfig cfg;
+    cfg.preflop = {1.0};
+    cfg.flop = {1.0};
+    cfg.turn = {1.0};
+    cfg.river = {1.0};
+
+    GameTree hu_tree(200, ActionAbstraction(cfg), 2);
+    hu_tree.build();
+
+    GameTree three_tree(200, ActionAbstraction(cfg), 3);
+    three_tree.build();
+
+    EXPECT_GT(three_tree.numNodes(), hu_tree.numNodes())
+        << "3-player tree should be larger than HU tree";
+}
+
+TEST(GameTree, ThreePlayerHasAllPlayers) {
+    BetSizeConfig cfg;
+    cfg.preflop = {1.0};
+    cfg.flop = {1.0};
+    cfg.turn = {1.0};
+    cfg.river = {1.0};
+    GameTree tree(200, ActionAbstraction(cfg), 3);
+    tree.build();
+
+    bool player_acts[3] = {};
+    for (uint32_t i = 0; i < tree.numNodes(); ++i) {
+        const auto& n = tree.node(i);
+        if (n.type == NodeType::Action && n.player < 3)
+            player_acts[n.player] = true;
+    }
+    EXPECT_TRUE(player_acts[0]) << "Player 0 should have action nodes";
+    EXPECT_TRUE(player_acts[1]) << "Player 1 should have action nodes";
+    EXPECT_TRUE(player_acts[2]) << "Player 2 should have action nodes";
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/cards.h"
+#include "core/game_state.h"
 #include "core/hand_evaluator.h"
 #include "solver/regret_store.h"
 #include "tree/game_tree.h"
@@ -29,13 +30,13 @@ struct ThreadState {
     std::mt19937_64 rng;
     HandEvaluator eval;
 
-    std::array<std::array<Card, 2>, 2> hole;   // hole[player][card]
-    std::array<Card, 5> board;                  // full 5-card board
-    std::array<std::array<int, 4>, 2> bucket_ids;  // bucket_ids[player][street]
+    std::array<std::array<Card, 2>, kMaxPlayers> hole;  // hole[player][card]
+    std::array<Card, 5> board;                           // full 5-card board
+    std::array<std::array<int, 4>, kMaxPlayers> bucket_ids;  // bucket_ids[player][street]
 
     // Thread-local accumulation buffers (same layout as RegretStore).
-    std::vector<float> local_regrets[2];
-    std::vector<float> local_strategy[2];
+    std::vector<float> local_regrets[kMaxPlayers];
+    std::vector<float> local_strategy[kMaxPlayers];
     uint64_t local_iterations = 0;
 
     ThreadState() { board.fill(kNoCard); }
@@ -45,7 +46,7 @@ struct ThreadState {
 // Discounted Counterfactual Regret Minimization with external sampling.
 //
 // Each iteration:
-//   1. Sample cards: hole cards for both players, flop, turn, river.
+//   1. Sample cards: hole cards for all players + 5 board cards.
 //   2. Compute bucket IDs for each player on each street.
 //   3. Traverse the game tree, computing counterfactual values.
 //   4. Update cumulative regrets and strategy sums.
@@ -92,17 +93,18 @@ private:
     RegretStore* store_;
     BucketFunc bucket_func_;
     DCFRParams params_;
+    int num_players_;
 
     HandEvaluator eval_;
     std::mt19937_64 rng_;
     uint64_t iteration_ = 0;
 
     // Sampled cards for current iteration (used by single-threaded path).
-    std::array<std::array<Card, 2>, 2> hole_;  // hole_[player][card]
-    std::array<Card, 5> board_;                 // full 5-card board
+    std::array<std::array<Card, 2>, kMaxPlayers> hole_;
+    std::array<Card, 5> board_;
 
     // Precomputed bucket IDs for current iteration: bucket_ids_[player][street].
-    std::array<std::array<int, 4>, 2> bucket_ids_;
+    std::array<std::array<int, 4>, kMaxPlayers> bucket_ids_;
 
     // Mutex for merging thread-local buffers into the global store.
     std::mutex merge_mutex_;

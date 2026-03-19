@@ -108,13 +108,13 @@ void solve(const SolverConfig& config) {
     int stack_chips = config.stack_depth_bb * 2;  // chip convention: 1 unit = 0.5 BB
 
     ActionAbstraction aa(makeBetConfig(config));
-    GameTree tree(stack_chips, aa);
+    GameTree tree(stack_chips, aa, config.num_players);
     tree.build();
 
     auto bk = bucketArray(config);
     InfoSetManager info_sets(tree, bk);
     RegretStore store(info_sets.totalInfoSets(), info_sets.maxActions(),
-                      config.output_path);
+                      config.output_path, config.num_players);
 
     auto bucket_func = makeBucketFunc(config);
 
@@ -125,6 +125,7 @@ void solve(const SolverConfig& config) {
 
     CFRSolver solver(tree, info_sets, store, bucket_func, params, config.seed);
 
+    std::cout << "Players: " << config.num_players << "\n";
     std::cout << "Tree: " << tree.numNodes() << " nodes, "
               << tree.numActionNodes() << " action, "
               << tree.numTerminalNodes() << " terminal\n";
@@ -168,7 +169,7 @@ void solve_resume(const SolverConfig& config, const std::string& checkpoint_path
     int stack_chips = config.stack_depth_bb * 2;
 
     ActionAbstraction aa(makeBetConfig(config));
-    GameTree tree(stack_chips, aa);
+    GameTree tree(stack_chips, aa, config.num_players);
     tree.build();
 
     auto bk = bucketArray(config);
@@ -219,7 +220,7 @@ StrategyResult query(const std::string& strategy_path,
 
     int stack_chips = config.stack_depth_bb * 2;
     ActionAbstraction aa(makeBetConfig(config));
-    GameTree tree(stack_chips, aa);
+    GameTree tree(stack_chips, aa, config.num_players);
     tree.build();
 
     auto bk = bucketArray(config);
@@ -308,9 +309,26 @@ StrategyResult solve_subgame(const std::string& hole_cards,
     int num_board = parseBoard(board, bd);
 
     // Replay history to build game state.
-    GameState state = GameState::newHand(stack_chips, 0);
-    state = state.withHoleCards(hole[0], hole[1],
-                                cardFromStr("2c"), cardFromStr("3c")); // dummy opponent
+    GameState state = GameState::newHand(stack_chips, 0, config.num_players);
+    // Deal hole cards: real player + dummy opponents
+    if (config.num_players == 2) {
+        state = state.withHoleCards(hole[0], hole[1],
+                                    cardFromStr("2c"), cardFromStr("3c"));
+    } else {
+        std::array<std::array<Card, 2>, kMaxPlayers> hole_arr{};
+        hole_arr[0] = {hole[0], hole[1]};
+        // Dummy opponents
+        Card dummy_cards[] = {cardFromStr("2c"), cardFromStr("3c"),
+                              cardFromStr("4c"), cardFromStr("5c"),
+                              cardFromStr("6c"), cardFromStr("7c"),
+                              cardFromStr("8c"), cardFromStr("9c"),
+                              cardFromStr("Tc"), cardFromStr("Jc")};
+        for (int p = 1; p < config.num_players; ++p) {
+            hole_arr[p][0] = dummy_cards[(p - 1) * 2];
+            hole_arr[p][1] = dummy_cards[(p - 1) * 2 + 1];
+        }
+        state = state.withHoleCards(hole_arr);
+    }
 
     auto hist_actions = parseHistory(history);
     ActionAbstraction aa(makeBetConfig(config));
@@ -343,10 +361,18 @@ StrategyResult solve_subgame(const std::string& hole_cards,
     auto bk = bucketArray(config);
     auto bucket_func = makeBucketFunc(config);
 
-    std::array<std::array<Card, 2>, 2> hole_arr = {{
-        {hole[0], hole[1]},
-        {cardFromStr("2c"), cardFromStr("3c")}
-    }};
+    std::array<std::array<Card, 2>, kMaxPlayers> hole_arr{};
+    hole_arr[0] = {hole[0], hole[1]};
+    hole_arr[1] = {cardFromStr("2c"), cardFromStr("3c")};
+    // Fill extra players with dummies if needed
+    Card dummy_cards2[] = {cardFromStr("4c"), cardFromStr("5c"),
+                           cardFromStr("6c"), cardFromStr("7c"),
+                           cardFromStr("8c"), cardFromStr("9c"),
+                           cardFromStr("Tc"), cardFromStr("Jc")};
+    for (int p = 2; p < config.num_players; ++p) {
+        hole_arr[p][0] = dummy_cards2[(p - 2) * 2];
+        hole_arr[p][1] = dummy_cards2[(p - 2) * 2 + 1];
+    }
     std::array<Card, 5> board_arr = {bd[0], bd[1], bd[2], bd[3], bd[4]};
 
     SubgameConfig sub_cfg;
@@ -380,7 +406,7 @@ ExploitResult measure_exploitability(const std::string& strategy_path,
 
     int stack_chips = config.stack_depth_bb * 2;
     ActionAbstraction aa(makeBetConfig(config));
-    GameTree tree(stack_chips, aa);
+    GameTree tree(stack_chips, aa, config.num_players);
     tree.build();
 
     auto bk = bucketArray(config);
@@ -392,7 +418,15 @@ ExploitResult measure_exploitability(const std::string& strategy_path,
     auto r = Exploitability::compute(tree, info_sets, store,
                                       bucket_func, num_samples, config.seed);
 
-    return {r.exploitability, r.br_value_p0, r.br_value_p1, r.num_samples};
+    ExploitResult result{};
+    result.exploitability = r.exploitability;
+    result.br_value_p0 = r.br_value_p0;
+    result.br_value_p1 = r.br_value_p1;
+    result.num_players = r.num_players;
+    result.num_samples = r.num_samples;
+    for (int p = 0; p < r.num_players; ++p)
+        result.br_values[p] = r.br_values[p];
+    return result;
 }
 
 // ── formatAction ─────────────────────────────────────────────────────────

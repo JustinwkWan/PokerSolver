@@ -228,3 +228,203 @@ TEST(GameState, TenMillionRandomHands) {
     }
     EXPECT_EQ(ok, kHands);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── Multi-way (N-player) tests ────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Play a random multi-way hand; returns true if it terminates properly.
+static bool playRandomMultiwayHand(std::mt19937_64& rng, int num_players,
+                                    int stack_bb = 100) {
+    Deck deck;
+    deck.shuffle(rng);
+
+    std::uniform_int_distribution<int> button_dist(0, num_players - 1);
+    GameState s = GameState::newHand(stack_bb * kBB, button_dist(rng), num_players);
+
+    // Deal hole cards
+    std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+    for (int i = 0; i < num_players; ++i) {
+        hole[i][0] = deck.deal();
+        hole[i][1] = deck.deal();
+    }
+    s = s.withHoleCards(hole);
+
+    int steps = 0;
+    while (!s.isTerminal()) {
+        if (s.needsCards()) {
+            s = dealBoard(s, deck);
+            continue;
+        }
+        s = s.apply(randomAction(s, rng));
+        if (++steps > 500) return false;  // runaway guard
+    }
+
+    // Verify stack conservation
+    int total = 0;
+    for (int i = 0; i < num_players; ++i)
+        total += s.stacks[i];
+    total += s.potSize();
+    if (total != s.stack_size * num_players) return false;
+
+    return true;
+}
+
+TEST(GameState, ThreePlayerBlinds) {
+    // button = 0, SB = 1, BB = 2, UTG = 0 (wraps)
+    GameState s = GameState::newHand(200, 0, 3);
+
+    EXPECT_EQ(s.num_players, 3);
+    EXPECT_EQ(s.street_bet[1], kSB);  // SB = seat 1
+    EXPECT_EQ(s.street_bet[2], kBB);  // BB = seat 2
+    EXPECT_EQ(s.street_bet[0], 0);    // BTN hasn't posted
+    EXPECT_EQ(s.actor, 0);            // UTG = (0+3)%3 = 0 = BTN in 3p
+}
+
+TEST(GameState, SixPlayerBlinds) {
+    // button = 3, SB = 4, BB = 5, UTG = 0
+    GameState s = GameState::newHand(200, 3, 6);
+
+    EXPECT_EQ(s.num_players, 6);
+    EXPECT_EQ(s.street_bet[4], kSB);  // SB = seat 4
+    EXPECT_EQ(s.street_bet[5], kBB);  // BB = seat 5
+    for (int i = 0; i < 4; ++i)
+        EXPECT_EQ(s.street_bet[i], 0);
+    EXPECT_EQ(s.actor, 0);            // UTG = (3+3)%6 = 0
+}
+
+TEST(GameState, ThreePlayerPreflopActionOrder) {
+    // button=0, SB=1, BB=2, UTG=0
+    // In 3-player, UTG = button. UTG acts first, then SB, then BB.
+    GameState s = GameState::newHand(200, 0, 3);
+
+    std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+    hole[0] = {c("Ah"), c("Kh")};
+    hole[1] = {c("2c"), c("3d")};
+    hole[2] = {c("4s"), c("5s")};
+    s = s.withHoleCards(hole);
+
+    EXPECT_EQ(s.actor, 0);  // UTG = seat 0
+    s = s.apply(Action::call());  // UTG calls
+    EXPECT_EQ(s.actor, 1);  // SB
+    s = s.apply(Action::call());  // SB calls
+    EXPECT_EQ(s.actor, 2);  // BB option
+    EXPECT_FALSE(s.isTerminal());
+}
+
+TEST(GameState, MultiwayFoldToWinner) {
+    // 4 players, everyone folds except one
+    GameState s = GameState::newHand(200, 0, 4);
+    // SB=1, BB=2, UTG=3
+
+    std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+    hole[0] = {c("Ah"), c("Kh")};
+    hole[1] = {c("2c"), c("3d")};
+    hole[2] = {c("4s"), c("5s")};
+    hole[3] = {c("6h"), c("7h")};
+    s = s.withHoleCards(hole);
+
+    EXPECT_EQ(s.actor, 3);  // UTG
+    s = s.apply(Action::fold());
+    EXPECT_FALSE(s.isTerminal());
+
+    EXPECT_EQ(s.actor, 0);  // BTN
+    s = s.apply(Action::fold());
+    EXPECT_FALSE(s.isTerminal());
+
+    EXPECT_EQ(s.actor, 1);  // SB
+    s = s.apply(Action::fold());
+    EXPECT_TRUE(s.isTerminal());
+    EXPECT_EQ(s.foldWinner(), 2);  // BB wins
+}
+
+TEST(GameState, ThreeWayToFlop) {
+    // 3 players all limp to flop
+    GameState s = GameState::newHand(200, 0, 3);
+
+    std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+    hole[0] = {c("Ah"), c("Kh")};
+    hole[1] = {c("2c"), c("3d")};
+    hole[2] = {c("4s"), c("5s")};
+    s = s.withHoleCards(hole);
+
+    // UTG (seat 0) calls, SB (seat 1) calls, BB (seat 2) checks
+    s = s.apply(Action::call());   // UTG
+    s = s.apply(Action::call());   // SB
+    s = s.apply(Action::check());  // BB option
+
+    EXPECT_EQ(s.street, Street::Flop);
+    EXPECT_TRUE(s.needsCards());
+    EXPECT_EQ(s.pot, kBB * 3);  // 3 players * 2 chips = 6
+
+    s = s.withFlop(c("7h"), c("8d"), c("9c"));
+
+    // Postflop: first active player after button (seat 0)
+    // nextActivePlayer(0) = 1 (SB)
+    EXPECT_EQ(s.actor, 1);  // SB acts first postflop
+}
+
+TEST(GameState, IsBettingClosedPartialFolds) {
+    // 4 players, 2 fold preflop, remaining 2 play postflop
+    GameState s = GameState::newHand(200, 0, 4);
+
+    std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+    hole[0] = {c("Ah"), c("Kh")};
+    hole[1] = {c("2c"), c("3d")};
+    hole[2] = {c("4s"), c("5s")};
+    hole[3] = {c("6h"), c("7h")};
+    s = s.withHoleCards(hole);
+
+    // UTG=3 folds, BTN=0 folds, SB=1 calls, BB=2 checks
+    s = s.apply(Action::fold());   // UTG folds
+    s = s.apply(Action::fold());   // BTN folds
+    s = s.apply(Action::call());   // SB calls
+    s = s.apply(Action::check());  // BB checks → flop
+
+    EXPECT_EQ(s.street, Street::Flop);
+    EXPECT_EQ(s.numNonFolded(), 2);
+}
+
+TEST(GameState, ThreePlayerStackConservation) {
+    // Verify stack conservation in a 3-player hand
+    GameState s = GameState::newHand(200, 0, 3);
+
+    std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+    hole[0] = {c("Ah"), c("Kh")};
+    hole[1] = {c("2c"), c("3d")};
+    hole[2] = {c("4s"), c("5s")};
+    s = s.withHoleCards(hole);
+
+    auto checkInv = [&](const GameState& st) {
+        int total = st.potSize();
+        for (int i = 0; i < st.num_players; ++i) total += st.stacks[i];
+        EXPECT_EQ(total, st.stack_size * st.num_players)
+            << "Stack conservation violated";
+    };
+
+    checkInv(s);
+    s = s.apply(Action::betRaise(8));  // UTG raises
+    checkInv(s);
+    s = s.apply(Action::fold());       // SB folds
+    checkInv(s);
+    s = s.apply(Action::call());       // BB calls
+    checkInv(s);
+}
+
+TEST(GameState, ThreePlayerRandomPlayout) {
+    std::mt19937_64 rng(54321);
+    constexpr int kHands = 100'000;
+    for (int i = 0; i < kHands; ++i) {
+        ASSERT_TRUE(playRandomMultiwayHand(rng, 3))
+            << "3-player hand " << i << " did not terminate";
+    }
+}
+
+TEST(GameState, SixPlayerRandomPlayout) {
+    std::mt19937_64 rng(67890);
+    constexpr int kHands = 100'000;
+    for (int i = 0; i < kHands; ++i) {
+        ASSERT_TRUE(playRandomMultiwayHand(rng, 6))
+            << "6-player hand " << i << " did not terminate";
+    }
+}

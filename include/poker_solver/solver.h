@@ -15,6 +15,7 @@ namespace poker_solver {
 
 struct SolverConfig {
     int stack_depth_bb = 100;
+    int num_players = 2;
     int num_iterations = 1000000;
     std::string output_path = "data/strategy";
 
@@ -82,6 +83,8 @@ struct ExploitResult {
     double exploitability;  // average chips exploitable per hand
     double br_value_p0;
     double br_value_p1;
+    double br_values[6] = {};  // best response EV for each player (up to 6)
+    int    num_players = 2;
     int    num_samples;
 };
 

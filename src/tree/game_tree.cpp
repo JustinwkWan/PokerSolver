@@ -3,8 +3,9 @@
 #include <cassert>
 
 // ── Constructor ─────────────────────────────────────────────────────────
-GameTree::GameTree(int stack_size, const ActionAbstraction& aa)
-    : stack_size_(stack_size), aa_(aa) {}
+GameTree::GameTree(int stack_size, const ActionAbstraction& aa,
+                   int num_players)
+    : stack_size_(stack_size), num_players_(num_players), aa_(aa) {}
 
 // ── Deal dummy cards to advance past chance nodes ───────────────────────
 // Legal actions depend only on pot/stack/bet state, not card values.
@@ -14,18 +15,30 @@ GameTree::GameTree(int stack_size, const ActionAbstraction& aa)
 GameState GameTree::dealDummyCards(GameState state) {
     // Deal hole cards if this is a fresh hand (preflop, no cards yet)
     if (state.street == Street::Preflop && state.hole[0][0] == kNoCard) {
-        state = state.withHoleCards(0, 1, 2, 3);
+        // Deal num_players * 2 hole cards using non-conflicting dummy values.
+        // P0={0,1}, P1={2,3}, P2={4,5}, ...
+        std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+        Card next = 0;
+        for (int p = 0; p < state.num_players; ++p) {
+            hole[p][0] = next++;
+            hole[p][1] = next++;
+        }
+        state = state.withHoleCards(hole);
     }
+    // Board cards start after all hole cards.
+    // For 6 players: hole cards use 0-11, board starts at 12.
+    Card board_start = static_cast<Card>(state.num_players * 2);
     while (state.needsCards()) {
         switch (state.street) {
             case Street::Flop:
-                state = state.withFlop(4, 5, 6);
+                state = state.withFlop(board_start, board_start + 1,
+                                       board_start + 2);
                 break;
             case Street::Turn:
-                state = state.withTurn(7);
+                state = state.withTurn(board_start + 3);
                 break;
             case Street::River:
-                state = state.withRiver(8);
+                state = state.withRiver(board_start + 4);
                 break;
             default:
                 break;
@@ -43,7 +56,7 @@ void GameTree::build() {
     num_action_nodes_ = 0;
     num_terminal_nodes_ = 0;
 
-    auto root_state = GameState::newHand(stack_size_, 0);
+    auto root_state = GameState::newHand(stack_size_, 0, num_players_);
     root_state = dealDummyCards(root_state);
     buildNode(root_state);
 }

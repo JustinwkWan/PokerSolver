@@ -41,6 +41,7 @@ static void printSolveUsage() {
         "  --output DIR         Output directory for strategy files (default: data/strategy)\n"
         "  --iterations N       Number of DCFR iterations (default: 1000000)\n"
         "  --stack N            Stack depth in big blinds (default: 100)\n"
+        "  --players N          Number of players, 2-6 (default: 2)\n"
         "  --resume DIR         Resume from checkpoint directory\n"
         "  --checkpoint N       Iterations between checkpoints (default: 100000)\n"
         "  --alpha F            DCFR alpha parameter (default: 1.5)\n"
@@ -58,7 +59,9 @@ static void printQueryUsage() {
         "  --hand STR           Hole cards, e.g. \"AhKs\" (required)\n"
         "  --board STR          Board cards, e.g. \"Td9c2h\" (default: \"\" for preflop)\n"
         "  --history STR        Action history, e.g. \"rc\" (default: \"\")\n"
-        "  --stack N            Stack depth in big blinds (default: 100)\n";
+        "  --stack N            Stack depth in big blinds (default: 100)\n"
+        "  --players N          Number of players, 2-6 (default: 2)\n"
+        "  --position POS       Position name: UTG, HJ, CO, BTN, SB, BB\n";
 }
 
 static void printExploitUsage() {
@@ -69,6 +72,7 @@ static void printExploitUsage() {
         "  --strategy DIR       Strategy directory (required)\n"
         "  --samples N          Number of Monte Carlo samples (default: 100000)\n"
         "  --stack N            Stack depth in big blinds (default: 100)\n"
+        "  --players N          Number of players, 2-6 (default: 2)\n"
         "  --seed N             Random seed (default: 42)\n";
 }
 
@@ -82,6 +86,7 @@ static void printSubgameUsage() {
         "  --history STR        Action history, e.g. \"rcc\" (default: \"\")\n"
         "  --iterations N       DCFR iterations for subgame (default: 10000)\n"
         "  --stack N            Stack depth in big blinds (default: 100)\n"
+        "  --players N          Number of players, 2-6 (default: 2)\n"
         "  --seed N             Random seed (default: 42)\n";
 }
 
@@ -119,6 +124,7 @@ static int cmdSolve(int argc, char* argv[]) {
         if (arg == "--output")       cfg.output_path      = getArg(argc, argv, i);
         else if (arg == "--iterations") cfg.num_iterations = getArgInt(argc, argv, i);
         else if (arg == "--stack")      cfg.stack_depth_bb = getArgInt(argc, argv, i);
+        else if (arg == "--players")    cfg.num_players    = getArgInt(argc, argv, i);
         else if (arg == "--resume")     resume_path        = getArg(argc, argv, i);
         else if (arg == "--checkpoint") cfg.checkpoint_every = getArgInt(argc, argv, i);
         else if (arg == "--alpha")      cfg.dcfr_alpha     = getArgFloat(argc, argv, i);
@@ -154,6 +160,8 @@ static int cmdQuery(int argc, char* argv[]) {
         else if (arg == "--board")  board              = getArg(argc, argv, i);
         else if (arg == "--history") history            = getArg(argc, argv, i);
         else if (arg == "--stack")  cfg.stack_depth_bb = getArgInt(argc, argv, i);
+        else if (arg == "--players") cfg.num_players   = getArgInt(argc, argv, i);
+        else if (arg == "--position") getArg(argc, argv, i); // consumed, used for display
         else {
             std::cerr << "Unknown option: " << arg << "\n";
             printQueryUsage();
@@ -200,6 +208,7 @@ static int cmdExploit(int argc, char* argv[]) {
         if (arg == "--strategy")     strategy_dir       = getArg(argc, argv, i);
         else if (arg == "--samples") samples            = getArgInt(argc, argv, i);
         else if (arg == "--stack")   cfg.stack_depth_bb = getArgInt(argc, argv, i);
+        else if (arg == "--players") cfg.num_players    = getArgInt(argc, argv, i);
         else if (arg == "--seed")    cfg.seed           = getArgU64(argc, argv, i);
         else {
             std::cerr << "Unknown option: " << arg << "\n";
@@ -216,10 +225,11 @@ static int cmdExploit(int argc, char* argv[]) {
 
     auto r = poker_solver::measure_exploitability(strategy_dir, samples, cfg);
 
-    std::cout << "Exploitability: " << r.exploitability << " chips/hand\n"
-              << "  BR value P0:  " << r.br_value_p0 << "\n"
-              << "  BR value P1:  " << r.br_value_p1 << "\n"
-              << "  Samples:      " << r.num_samples << "\n";
+    std::cout << "Exploitability: " << r.exploitability << " chips/hand\n";
+    for (int p = 0; p < r.num_players; ++p) {
+        std::cout << "  BR value P" << p << ":  " << r.br_values[p] << "\n";
+    }
+    std::cout << "  Samples:      " << r.num_samples << "\n";
 
     return 0;
 }
@@ -239,6 +249,7 @@ static int cmdSubgame(int argc, char* argv[]) {
         else if (arg == "--history")    history             = getArg(argc, argv, i);
         else if (arg == "--iterations") iterations          = getArgInt(argc, argv, i);
         else if (arg == "--stack")      cfg.stack_depth_bb  = getArgInt(argc, argv, i);
+        else if (arg == "--players")    cfg.num_players     = getArgInt(argc, argv, i);
         else if (arg == "--seed")       cfg.seed            = getArgU64(argc, argv, i);
         else {
             std::cerr << "Unknown option: " << arg << "\n";

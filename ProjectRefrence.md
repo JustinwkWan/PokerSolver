@@ -1059,6 +1059,461 @@ Every module gets tested before the next one starts. No exceptions.
 
 ---
 
+### Phase 10: 6-Max Solver
+
+**Goal:** Extend the solver from heads-up to 6-max (2-6 player) NLHE. This enables generating the positional range charts (UTG, HJ, CO, BTN, SB, BB) that commercial solvers like GTO Wizard provide.
+
+**Why this is hard:** The game tree for 6 players is vastly larger than HU. Preflop alone, 6 players acting in sequence with raise/re-raise creates a tree orders of magnitude bigger. Pluribus (Brown 2019) solved 6-player poker but required heavy abstraction and clever techniques.
+
+**C++ Changes Required:**
+
+| Component | Current (HU) | Required (6-Max) | Impact |
+|-----------|-------------|-------------------|--------|
+| `GameState` | `hole[2]`, `stacks[2]`, `folded[2]`, etc. | Variable-size: `hole[N]`, `stacks[N]`, `folded[N]` where N=2-6 | **Major rewrite** — most state arrays are fixed at 2 |
+| `GameState::actor` | Alternates 0/1 | Rotates through active (non-folded) players by position | Moderate — need position-aware turn order |
+| `GameState::newHand()` | Posts SB/BB for 2 players | Posts SB/BB/antes, sets UTG as first actor preflop, BTN+1 postflop | Moderate |
+| `GameTree` | Builds tree for 2 players | Builds tree for N players; each action node tracks which player acts | Moderate — tree builder generalizes, but tree SIZE explodes |
+| `InfoSetManager` | `infoSetId(node, bucket)` for 2 players | Same concept, but N players × more nodes = much larger info set space | Sizing changes, logic similar |
+| `RegretStore` | `regrets_[2]`, `strategy_[2]` | `regrets_[N]`, `strategy_[N]` — N arrays per type | Moderate — generalize from 2 to N |
+| `CFRSolver::traverse()` | Traverser vs 1 opponent | Traverser vs N-1 opponents; sample all opponents' actions | **Core algorithm change** |
+| `CFRSolver::terminalPayoff()` | 2-player showdown or fold | Multi-way showdown (split pots, side pots) or last-player-standing | **Significant** — side pots are complex |
+| `CFRSolver::sampleCards()` | Deal 2×2 hole + 5 board = 9 cards | Deal N×2 hole + 5 board = 2N+5 cards | Minor |
+| `HandEvaluator` | Compare 2 hands | Compare N hands, handle ties and split pots | Moderate |
+| `ActionAbstraction` | Same sizes for both players | Position-dependent bet sizes (e.g., UTG opens smaller) | Minor — config change |
+| `SolverConfig` | `stack_depth_bb` | Add `num_players`, `positions[]`, `ante` | Minor |
+| CLI | `--stack N` | Add `--players N`, `--position POS` for queries | Minor |
+
+**Approach: Solve preflop/flop separately from turn/river.**
+
+The full 6-max tree from preflop through river is intractable to solve monolithically. The standard approach (used by Pluribus and commercial solvers):
+
+1. **Preflop blueprint (6-way):** Solve the full 6-player preflop tree with very coarse postflop abstraction (roll out to showdown with equity estimates at leaf nodes). This produces the opening ranges (UTG range, CO 3-bet range, etc.).
+2. **Postflop subgames (typically 2-3 way):** Once the hand reaches the flop, most players have folded. Solve the remaining 2-3 player subgame from flop onward with finer abstraction. Reuse the existing HU postflop solver for heads-up pots.
+3. **Action abstraction:** Use fewer bet sizes in multi-way pots (check/bet/raise is usually enough) since multi-way play is less about bluffing and more about value.
+
+**Memory estimates (6-max preflop only):**
+
+| Component | Estimate |
+|-----------|----------|
+| Preflop info sets (6-player, 169 buckets) | ~50-100M info sets |
+| Regret storage (6 players × info sets × actions) | ~20-50 GB |
+| Tree structure | ~500 MB |
+
+**Simplification: Heads-up postflop.** Most hands go to the flop 2-way or 3-way. For v1, once the hand is heads-up postflop, delegate to the existing HU solver. Multi-way postflop (3+ players seeing a flop) is much harder and can be deferred.
+
+**Files:**
+- `src/core/game_state.h/.cpp` — generalize to N players
+- `src/tree/game_tree.h/.cpp` — N-player tree building
+- `src/solver/cfr_solver.h/.cpp` — N-player traversal
+- `src/solver/regret_store.h/.cpp` — N-player arrays
+- `tests/test_6max.cpp` — verify preflop range convergence
+
+**Deliverable:** `poker-solver solve --players 6 --stack 100` produces preflop ranges for all 6 positions. Postflop play delegates to HU/3-way subgame solvers.
+
+**Status:** [ ] Not started
+
+---
+
+## CLI Solve Commands Reference
+
+All commands assume the binary is built and available as `poker-solver`. Build with:
+
+```bash
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+```
+
+The binary is at `build/src/cli/poker-solver`.
+
+---
+
+### 1. Build Card Abstraction
+
+Must be run once before solving. Produces bucket assignment files used by the solver.
+
+```bash
+# Standard abstraction (169/500/1000/2000 buckets)
+poker-solver abstraction \
+  --output data/buckets/standard \
+  --preflop-buckets 169 \
+  --flop-buckets 500 \
+  --turn-buckets 1000 \
+  --river-buckets 2000 \
+  --threads 8
+
+# Fine abstraction (for higher accuracy, more memory)
+poker-solver abstraction \
+  --output data/buckets/fine \
+  --preflop-buckets 169 \
+  --flop-buckets 1000 \
+  --turn-buckets 2000 \
+  --river-buckets 5000 \
+  --threads 8
+
+# Coarse abstraction (for testing or deep stacks)
+poker-solver abstraction \
+  --output data/buckets/coarse \
+  --preflop-buckets 169 \
+  --flop-buckets 200 \
+  --turn-buckets 500 \
+  --river-buckets 1000 \
+  --threads 8
+```
+
+---
+
+### 2. Heads-Up Solves
+
+```bash
+# ── Quick test solve (verify everything works) ──────────────────────────
+poker-solver solve \
+  --stack 100 \
+  --iterations 10000 \
+  --output data/strategy/hu_100bb_test \
+  --threads 4 \
+  --checkpoint 5000
+
+# ── Standard 100bb HU solve ─────────────────────────────────────────────
+poker-solver solve \
+  --stack 100 \
+  --iterations 1000000 \
+  --output data/strategy/hu_100bb \
+  --threads 8 \
+  --checkpoint 100000
+
+# ── High-iteration 100bb solve (production quality) ─────────────────────
+poker-solver solve \
+  --stack 100 \
+  --iterations 10000000 \
+  --output data/strategy/hu_100bb_10M \
+  --threads 8 \
+  --checkpoint 1000000
+
+# ── Resume an interrupted solve ─────────────────────────────────────────
+poker-solver solve \
+  --stack 100 \
+  --iterations 10000000 \
+  --resume data/strategy/hu_100bb_10M \
+  --threads 8
+
+# ── 50bb solve (short stack) ────────────────────────────────────────────
+poker-solver solve \
+  --stack 50 \
+  --iterations 1000000 \
+  --output data/strategy/hu_50bb \
+  --threads 8 \
+  --checkpoint 100000
+
+# ── 200bb solve (deep stack) ────────────────────────────────────────────
+poker-solver solve \
+  --stack 200 \
+  --iterations 2000000 \
+  --output data/strategy/hu_200bb \
+  --threads 8 \
+  --checkpoint 200000
+
+# ── 500bb solve (very deep — needs coarse abstraction) ──────────────────
+poker-solver solve \
+  --stack 500 \
+  --iterations 5000000 \
+  --output data/strategy/hu_500bb \
+  --threads 8 \
+  --checkpoint 500000
+
+# ── Custom DCFR parameters ──────────────────────────────────────────────
+poker-solver solve \
+  --stack 100 \
+  --iterations 1000000 \
+  --output data/strategy/hu_100bb_custom \
+  --threads 8 \
+  --alpha 1.5 --beta 0.5 --gamma 2.0 \
+  --seed 12345
+```
+
+---
+
+### 3. 6-Max Solves (Phase 10)
+
+```bash
+# ── 6-max preflop blueprint (100bb) ─────────────────────────────────────
+poker-solver solve \
+  --players 6 \
+  --stack 100 \
+  --iterations 5000000 \
+  --output data/strategy/6max_100bb \
+  --threads 8 \
+  --checkpoint 500000
+
+# ── 6-max preflop blueprint (50bb, tournament-depth) ────────────────────
+poker-solver solve \
+  --players 6 \
+  --stack 50 \
+  --iterations 3000000 \
+  --output data/strategy/6max_50bb \
+  --threads 8 \
+  --checkpoint 300000
+
+# ── 6-max preflop blueprint (200bb, deep) ───────────────────────────────
+poker-solver solve \
+  --players 6 \
+  --stack 200 \
+  --iterations 10000000 \
+  --output data/strategy/6max_200bb \
+  --threads 8 \
+  --checkpoint 1000000
+```
+
+---
+
+### 4. Measure Exploitability
+
+Run after a solve to check convergence quality.
+
+```bash
+# ── Quick exploitability check ──────────────────────────────────────────
+poker-solver exploit \
+  --strategy data/strategy/hu_100bb \
+  --samples 100000 \
+  --stack 100
+
+# ── Thorough exploitability measurement ─────────────────────────────────
+poker-solver exploit \
+  --strategy data/strategy/hu_100bb_10M \
+  --samples 1000000 \
+  --stack 100
+
+# ── Deep stack exploitability ───────────────────────────────────────────
+poker-solver exploit \
+  --strategy data/strategy/hu_200bb \
+  --samples 500000 \
+  --stack 200
+```
+
+---
+
+### 5. Query Strategy
+
+Look up the solved GTO strategy for a specific spot.
+
+```bash
+# ── Preflop: what to do with AKs as SB (HU) ────────────────────────────
+poker-solver query \
+  --strategy data/strategy/hu_100bb \
+  --hand "AhKh" \
+  --stack 100
+
+# ── Preflop: after a raise, should we 3-bet with QQ? ───────────────────
+poker-solver query \
+  --strategy data/strategy/hu_100bb \
+  --hand "QdQc" \
+  --history "r" \
+  --stack 100
+
+# ── Flop: c-bet decision on a dry board ─────────────────────────────────
+poker-solver query \
+  --strategy data/strategy/hu_100bb \
+  --hand "AhKs" \
+  --board "Td9c2h" \
+  --history "rc" \
+  --stack 100
+
+# ── Turn: facing a bet after checking flop ──────────────────────────────
+poker-solver query \
+  --strategy data/strategy/hu_100bb \
+  --hand "JhTh" \
+  --board "Td9c2h7d" \
+  --history "rckb" \
+  --stack 100
+
+# ── River: final street decision ────────────────────────────────────────
+poker-solver query \
+  --strategy data/strategy/hu_100bb \
+  --hand "AsAd" \
+  --board "Td9c2h7d5s" \
+  --history "rcbc" \
+  --stack 100
+
+# ── 6-max: UTG opening range query ─────────────────────────────────────
+poker-solver query \
+  --strategy data/strategy/6max_100bb \
+  --hand "AhKs" \
+  --position UTG \
+  --stack 100
+
+# ── 6-max: CO facing UTG open ──────────────────────────────────────────
+poker-solver query \
+  --strategy data/strategy/6max_100bb \
+  --hand "TsTc" \
+  --position CO \
+  --history "r" \
+  --stack 100
+
+# ── 6-max: BTN 3-bet spot ──────────────────────────────────────────────
+poker-solver query \
+  --strategy data/strategy/6max_100bb \
+  --hand "AhQs" \
+  --position BTN \
+  --history "rr" \
+  --stack 100
+
+# ── 6-max: SB vs BB after everyone folds ────────────────────────────────
+poker-solver query \
+  --strategy data/strategy/6max_100bb \
+  --hand "Kh9s" \
+  --position SB \
+  --history "fffff" \
+  --stack 100
+```
+
+---
+
+### 6. Subgame Solving
+
+Re-solve a specific spot with finer granularity than the blueprint.
+
+```bash
+# ── River subgame re-solve (fast, ~seconds) ─────────────────────────────
+poker-solver subgame \
+  --hand "AhKs" \
+  --board "Td9c2h7d5s" \
+  --history "rcbc" \
+  --iterations 10000 \
+  --stack 100
+
+# ── Turn subgame re-solve (slower, ~minutes) ────────────────────────────
+poker-solver subgame \
+  --hand "JhTh" \
+  --board "Td9c2h7d" \
+  --history "rckb" \
+  --iterations 50000 \
+  --stack 100
+
+# ── Flop subgame re-solve (slowest, may take several minutes) ───────────
+poker-solver subgame \
+  --hand "AhKs" \
+  --board "Td9c2h" \
+  --history "rc" \
+  --iterations 100000 \
+  --stack 100
+```
+
+---
+
+### 7. Exploitation Commands (Phase 7+)
+
+```bash
+# ── Import hand histories ───────────────────────────────────────────────
+poker-solver import-hands \
+  --file villain_hands.csv \
+  --player "Villain" \
+  --format pokerstars
+
+# ── Classify opponent archetype ─────────────────────────────────────────
+poker-solver classify \
+  --player "Villain"
+
+# ── Query exploitative strategy against a classified opponent ───────────
+poker-solver query \
+  --player "Villain" \
+  --hand "AhKs" \
+  --board "Td9c2h" \
+  --history "rc" \
+  --stack 100
+
+# ── Build full opponent model (20K+ hands) ──────────────────────────────
+poker-solver model-player \
+  --player "Villain" \
+  --blueprint data/strategy/hu_100bb \
+  --min-hands 20000
+
+# ── Analyze specific opponent leaks ─────────────────────────────────────
+poker-solver analyze-player \
+  --player "Villain" \
+  --board "Td9c2h" \
+  --history "rc"
+
+# ── Nodelocking ─────────────────────────────────────────────────────────
+poker-solver nodelock \
+  --blueprint data/strategy/hu_100bb \
+  --node "flop:IP:cbet" \
+  --board "Td9c2h" \
+  --lock "bet=0.80,check=0.20" \
+  --hand "AhKs"
+```
+
+---
+
+### 8. Web UI
+
+```bash
+# ── Launch the browser-based interface ──────────────────────────────────
+poker-solver ui --port 8080
+# Then open http://localhost:8080 in your browser
+```
+
+---
+
+### 9. Full Workflow Example (End-to-End)
+
+```bash
+# Step 1: Build abstraction
+poker-solver abstraction \
+  --output data/buckets/standard \
+  --preflop-buckets 169 --flop-buckets 500 \
+  --turn-buckets 1000 --river-buckets 2000 \
+  --threads 8
+
+# Step 2: Solve HU 100bb blueprint
+poker-solver solve \
+  --stack 100 \
+  --iterations 10000000 \
+  --output data/strategy/hu_100bb \
+  --threads 8 \
+  --checkpoint 1000000
+
+# Step 3: Check convergence
+poker-solver exploit \
+  --strategy data/strategy/hu_100bb \
+  --samples 1000000 \
+  --stack 100
+
+# Step 4: Query specific spots
+poker-solver query \
+  --strategy data/strategy/hu_100bb \
+  --hand "AhKs" --board "Td9c2h" --history "rc" \
+  --stack 100
+
+# Step 5: Re-solve a river spot with finer detail
+poker-solver subgame \
+  --hand "AhKs" --board "Td9c2h7d5s" \
+  --history "rcbc" --iterations 10000 \
+  --stack 100
+
+# Step 6: Solve 6-max preflop ranges
+poker-solver solve \
+  --players 6 \
+  --stack 100 \
+  --iterations 5000000 \
+  --output data/strategy/6max_100bb \
+  --threads 8 \
+  --checkpoint 500000
+
+# Step 7: Query 6-max positional ranges
+poker-solver query \
+  --strategy data/strategy/6max_100bb \
+  --hand "AhKs" --position UTG --stack 100
+
+poker-solver query \
+  --strategy data/strategy/6max_100bb \
+  --hand "AhKs" --position BTN --stack 100
+
+# Step 8: Launch UI for visual exploration
+poker-solver ui --port 8080
+```
+
+---
+
 ## Changelog
 
 - 2026-03-17: Initial document created with all design decisions and phase plan.
@@ -1067,3 +1522,4 @@ Every module gets tested before the next one starts. No exceptions.
 - 2026-03-18: Added Nash distance targets (Phase 4), depth-limited solving future enhancement (Phase 5), nodelocking (Phases 7/8), and 1,755 distinct flops reference (Phase 3) based on GTO Wizard analysis.
 - 2026-03-18: Phase 6 (CLI & API) completed. Added Phase 9 (Web UI — PioSolver-style browser interface with C++ HTTP server backend and React frontend).
 - 2026-03-18: Added Phase 6b (Multithreaded Solver) — near-linear speedup via per-thread RNG/regret buffers with periodic merge or atomic updates.
+- 2026-03-18: Added Phase 10 (6-Max Solver) and full CLI Solve Commands Reference covering all phases end-to-end. Phase 6b multithreading implemented (per-thread buffers with periodic merge).

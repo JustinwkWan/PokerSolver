@@ -36,10 +36,9 @@ TEST(SubgameSolver, SolvesFromStart) {
     cfg.river   = {1.0};
     ActionAbstraction aa(cfg);
 
-    std::array<std::array<Card, 2>, 2> hole = {{
-        {cardFromStr("Ah"), cardFromStr("Kh")},
-        {cardFromStr("Tc"), cardFromStr("9c")}
-    }};
+    std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+    hole[0] = {cardFromStr("Ah"), cardFromStr("Kh")};
+    hole[1] = {cardFromStr("Tc"), cardFromStr("9c")};
     std::array<Card, 5> board = {
         cardFromStr("5d"), cardFromStr("2c"), cardFromStr("7s"),
         cardFromStr("Jd"), cardFromStr("3h")
@@ -74,10 +73,9 @@ TEST(SubgameSolver, StrategyIsValid) {
     cfg.turn    = {1.0};
     cfg.river   = {1.0};
 
-    std::array<std::array<Card, 2>, 2> hole = {{
-        {cardFromStr("Ah"), cardFromStr("Kh")},
-        {cardFromStr("Tc"), cardFromStr("9c")}
-    }};
+    std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+    hole[0] = {cardFromStr("Ah"), cardFromStr("Kh")};
+    hole[1] = {cardFromStr("Tc"), cardFromStr("9c")};
     std::array<Card, 5> board = {
         cardFromStr("5d"), cardFromStr("2c"), cardFromStr("7s"),
         cardFromStr("Jd"), cardFromStr("3h")
@@ -108,10 +106,9 @@ TEST(SubgameSolver, FinerAbstractionMoreActions) {
         cardFromStr("Ah"), cardFromStr("Kh"),
         cardFromStr("Tc"), cardFromStr("9c"));
 
-    std::array<std::array<Card, 2>, 2> hole = {{
-        {cardFromStr("Ah"), cardFromStr("Kh")},
-        {cardFromStr("Tc"), cardFromStr("9c")}
-    }};
+    std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+    hole[0] = {cardFromStr("Ah"), cardFromStr("Kh")};
+    hole[1] = {cardFromStr("Tc"), cardFromStr("9c")};
     std::array<Card, 5> board = {
         cardFromStr("5d"), cardFromStr("2c"), cardFromStr("7s"),
         cardFromStr("Jd"), cardFromStr("3h")
@@ -161,10 +158,9 @@ TEST(SubgameSolver, DeterministicSameSeed) {
     cfg.turn = {1.0};
     cfg.river = {1.0};
 
-    std::array<std::array<Card, 2>, 2> hole = {{
-        {cardFromStr("Ah"), cardFromStr("Kh")},
-        {cardFromStr("Tc"), cardFromStr("9c")}
-    }};
+    std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+    hole[0] = {cardFromStr("Ah"), cardFromStr("Kh")};
+    hole[1] = {cardFromStr("Tc"), cardFromStr("9c")};
     std::array<Card, 5> board = {
         cardFromStr("5d"), cardFromStr("2c"), cardFromStr("7s"),
         cardFromStr("Jd"), cardFromStr("3h")
@@ -201,10 +197,9 @@ TEST(SubgameSolver, ActionsIncludeFoldCallRaise) {
     cfg.turn = {0.5, 1.0};
     cfg.river = {0.5, 1.0};
 
-    std::array<std::array<Card, 2>, 2> hole = {{
-        {cardFromStr("Ah"), cardFromStr("Kh")},
-        {cardFromStr("Tc"), cardFromStr("9c")}
-    }};
+    std::array<std::array<Card, 2>, kMaxPlayers> hole{};
+    hole[0] = {cardFromStr("Ah"), cardFromStr("Kh")};
+    hole[1] = {cardFromStr("Tc"), cardFromStr("9c")};
     std::array<Card, 5> board = {
         cardFromStr("5d"), cardFromStr("2c"), cardFromStr("7s"),
         cardFromStr("Jd"), cardFromStr("3h")

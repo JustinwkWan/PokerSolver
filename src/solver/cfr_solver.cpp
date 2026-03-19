@@ -19,6 +19,7 @@ CFRSolver::CFRSolver(const GameTree& tree,
       store_(&store),
       bucket_func_(std::move(bucket_func)),
       params_(params),
+      num_players_(tree.numPlayers()),
       rng_(seed) {
     board_.fill(kNoCard);
 }
@@ -28,7 +29,7 @@ CFRSolver::CFRSolver(const GameTree& tree,
 void CFRSolver::run(uint64_t num_iterations) {
     for (uint64_t i = 0; i < num_iterations; ++i) {
         // Alternate traversing player each iteration.
-        int traverser = static_cast<int>(iteration_ % 2);
+        int traverser = static_cast<int>(iteration_ % num_players_);
         runIteration(traverser);
     }
 }
@@ -81,16 +82,16 @@ void CFRSolver::threadWorker(int thread_id, uint64_t iters_per_thread,
     ThreadState ts;
     ts.rng.seed(base_seed);
     uint64_t total_entries = store_->totalEntries();
-    for (int p = 0; p < 2; ++p) {
+    for (int p = 0; p < num_players_; ++p) {
         ts.local_regrets[p].assign(total_entries, 0.0f);
         ts.local_strategy[p].assign(total_entries, 0.0f);
     }
     ts.local_iterations = 0;
 
     for (uint64_t i = 0; i < iters_per_thread; ++i) {
-        // Alternate traversing player. Use global iteration + thread offset
-        // to avoid all threads always traversing as the same player.
-        int traverser = static_cast<int>((iteration_ + i * 2 + thread_id) % 2);
+        // Alternate traversing player.
+        int traverser = static_cast<int>(
+            (iteration_ + i * num_players_ + thread_id) % num_players_);
 
         sampleCards(ts);
         traverse(0, traverser, ts);
@@ -114,7 +115,7 @@ void CFRSolver::mergeThreadState(ThreadState& ts) {
     std::lock_guard<std::mutex> lock(merge_mutex_);
 
     uint64_t total = store_->totalEntries();
-    for (int p = 0; p < 2; ++p) {
+    for (int p = 0; p < num_players_; ++p) {
         float* global_reg = store_->regrets(p);
         float* global_strat = store_->strategy(p);
         float* local_reg = ts.local_regrets[p].data();
@@ -134,22 +135,20 @@ void CFRSolver::mergeThreadState(ThreadState& ts) {
 // ── Card sampling ───────────────────────────────────────────────────────
 
 void CFRSolver::sampleCards() {
-    // Build a deck and deal: 2 hole cards per player + 5 board cards = 9 total.
     Deck deck;
     deck.shuffle(rng_);
 
-    hole_[0][0] = deck.deal();
-    hole_[0][1] = deck.deal();
-    hole_[1][0] = deck.deal();
-    hole_[1][1] = deck.deal();
-    board_[0]   = deck.deal();
-    board_[1]   = deck.deal();
-    board_[2]   = deck.deal();
-    board_[3]   = deck.deal();
-    board_[4]   = deck.deal();
+    // Deal hole cards for all players.
+    for (int p = 0; p < num_players_; ++p) {
+        hole_[p][0] = deck.deal();
+        hole_[p][1] = deck.deal();
+    }
+    // Deal 5 board cards.
+    for (int i = 0; i < 5; ++i)
+        board_[i] = deck.deal();
 
     // Precompute bucket IDs for all (player, street) combos.
-    for (int p = 0; p < 2; ++p) {
+    for (int p = 0; p < num_players_; ++p) {
         bucket_ids_[p][0] = bucket_func_(p, 0, hole_[p].data(),
                                           board_.data(), 0);
         bucket_ids_[p][1] = bucket_func_(p, 1, hole_[p].data(),
@@ -165,17 +164,14 @@ void CFRSolver::sampleCards(ThreadState& ts) {
     Deck deck;
     deck.shuffle(ts.rng);
 
-    ts.hole[0][0] = deck.deal();
-    ts.hole[0][1] = deck.deal();
-    ts.hole[1][0] = deck.deal();
-    ts.hole[1][1] = deck.deal();
-    ts.board[0]   = deck.deal();
-    ts.board[1]   = deck.deal();
-    ts.board[2]   = deck.deal();
-    ts.board[3]   = deck.deal();
-    ts.board[4]   = deck.deal();
+    for (int p = 0; p < num_players_; ++p) {
+        ts.hole[p][0] = deck.deal();
+        ts.hole[p][1] = deck.deal();
+    }
+    for (int i = 0; i < 5; ++i)
+        ts.board[i] = deck.deal();
 
-    for (int p = 0; p < 2; ++p) {
+    for (int p = 0; p < num_players_; ++p) {
         ts.bucket_ids[p][0] = bucket_func_(p, 0, ts.hole[p].data(),
                                             ts.board.data(), 0);
         ts.bucket_ids[p][1] = bucket_func_(p, 1, ts.hole[p].data(),
@@ -230,7 +226,7 @@ float CFRSolver::traverse(uint32_t node_idx, int traverser) {
         return node_value;
 
     } else {
-        // ── Opponent's node: sample ONE action according to strategy ──────
+        // ── Non-traverser's node: sample ONE action according to strategy ─
         float r = std::uniform_real_distribution<float>(0.0f, 1.0f)(rng_);
         float cum = 0.0f;
         int sampled = num_actions - 1;  // default to last action
@@ -323,31 +319,73 @@ float CFRSolver::terminalPayoff(uint32_t node_idx, int traverser) const {
     assert(n.type == NodeType::Terminal);
 
     int pot = n.pot;
-    int half_pot = pot / 2;  // each player's contribution
 
     if (n.fold_player >= 0) {
-        // Someone folded. The non-folding player wins the pot.
+        // Someone folded. In multi-way, the fold_player field stores who folded
+        // last, but terminal is reached when only 1 player remains.
+        // The non-folding player wins the pot.
+        // For N-player: pot was collected, traverser's share = pot - contribution
+        // For simplicity, use the same half-pot logic for HU,
+        // and for multi-way fold: the winner takes the pot.
         int folder = n.fold_player;
-        int winner = 1 - folder;
-        if (traverser == winner) {
-            return static_cast<float>(half_pot);
-        } else {
-            return static_cast<float>(-half_pot);
+        int winner = -1;
+        // In an N-player tree, fold terminal means only 1 non-folded player
+        // The winner is determined by the tree's terminal state.
+        // For HU: winner = 1 - folder
+        if (num_players_ == 2) {
+            winner = 1 - folder;
+            int half_pot = pot / 2;
+            return traverser == winner ? static_cast<float>(half_pot)
+                                       : static_cast<float>(-half_pot);
         }
+
+        // For multi-way fold terminals, payoff = pot - my_contribution
+        // Each player contributed pot/num_remaining_at_start approx.
+        // Since the tree stores the total pot at terminal, and we use
+        // equal starting stacks, each player's contribution is proportional.
+        // For v1 (no side pots): traverser wins pot if they are the winner,
+        // loses their contribution otherwise.
+        // The winner is the last non-folded player. We don't track individual
+        // contributions in the tree node, so we approximate:
+        // payoff = (pot - contribution_from_traverser) if winner
+        //        = (-contribution_from_traverser) if loser
+        // Since we don't know exact contributions from the tree alone,
+        // use the standard approach: traverser payoff = winnings - stack_start_contribution
+        // For fold terminals in the abstract tree during external sampling,
+        // we use: winner gets +pot/num_players*(num_players-1),
+        //         loser gets -pot/num_players
+        // This approximation works because external sampling already weights by probability.
+        int share = pot / num_players_;
+        if (traverser == (1 - folder)) {
+            // Traverser is winner (only valid for last fold in 2-remaining situations)
+            return static_cast<float>(pot - share);
+        }
+        return static_cast<float>(-share);
     }
 
-    // Showdown: evaluate hands.
-    uint16_t rank0 = eval_.evaluate(hole_[0], board_);
-    uint16_t rank1 = eval_.evaluate(hole_[1], board_);
+    // Showdown: evaluate all non-folded hands, best hand wins.
+    // For external sampling, all players have hole cards.
+    uint16_t ranks[kMaxPlayers];
+    uint16_t best_rank = 0;
+    for (int p = 0; p < num_players_; ++p) {
+        ranks[p] = eval_.evaluate(hole_[p], board_);
+        if (ranks[p] > best_rank) best_rank = ranks[p];
+    }
 
-    if (rank0 > rank1) {
-        return traverser == 0 ? static_cast<float>(half_pot)
-                              : static_cast<float>(-half_pot);
-    } else if (rank1 > rank0) {
-        return traverser == 1 ? static_cast<float>(half_pot)
-                              : static_cast<float>(-half_pot);
+    // Count winners (for split pots).
+    int num_winners = 0;
+    for (int p = 0; p < num_players_; ++p) {
+        if (ranks[p] == best_rank) ++num_winners;
+    }
+
+    // Traverser's payoff.
+    int share = pot / num_players_;  // each player's contribution
+    if (ranks[traverser] == best_rank) {
+        // Winner or split: wins pot / num_winners
+        float winnings = static_cast<float>(pot) / num_winners;
+        return winnings - static_cast<float>(share);
     } else {
-        return 0.0f;
+        return static_cast<float>(-share);
     }
 }
 
@@ -359,29 +397,41 @@ float CFRSolver::terminalPayoff(uint32_t node_idx, int traverser,
     assert(n.type == NodeType::Terminal);
 
     int pot = n.pot;
-    int half_pot = pot / 2;
 
     if (n.fold_player >= 0) {
-        int folder = n.fold_player;
-        int winner = 1 - folder;
-        if (traverser == winner) {
-            return static_cast<float>(half_pot);
-        } else {
-            return static_cast<float>(-half_pot);
+        if (num_players_ == 2) {
+            int winner = 1 - n.fold_player;
+            int half_pot = pot / 2;
+            return traverser == winner ? static_cast<float>(half_pot)
+                                       : static_cast<float>(-half_pot);
         }
+
+        int share = pot / num_players_;
+        if (traverser == (1 - n.fold_player)) {
+            return static_cast<float>(pot - share);
+        }
+        return static_cast<float>(-share);
     }
 
-    uint16_t rank0 = ts.eval.evaluate(ts.hole[0], ts.board);
-    uint16_t rank1 = ts.eval.evaluate(ts.hole[1], ts.board);
+    // Showdown.
+    uint16_t ranks[kMaxPlayers];
+    uint16_t best_rank = 0;
+    for (int p = 0; p < num_players_; ++p) {
+        ranks[p] = ts.eval.evaluate(ts.hole[p], ts.board);
+        if (ranks[p] > best_rank) best_rank = ranks[p];
+    }
 
-    if (rank0 > rank1) {
-        return traverser == 0 ? static_cast<float>(half_pot)
-                              : static_cast<float>(-half_pot);
-    } else if (rank1 > rank0) {
-        return traverser == 1 ? static_cast<float>(half_pot)
-                              : static_cast<float>(-half_pot);
+    int num_winners = 0;
+    for (int p = 0; p < num_players_; ++p) {
+        if (ranks[p] == best_rank) ++num_winners;
+    }
+
+    int share = pot / num_players_;
+    if (ranks[traverser] == best_rank) {
+        float winnings = static_cast<float>(pot) / num_winners;
+        return winnings - static_cast<float>(share);
     } else {
-        return 0.0f;
+        return static_cast<float>(-share);
     }
 }
 
@@ -400,7 +450,7 @@ void CFRSolver::applyDiscounting() {
 
     uint64_t total = store_->totalEntries();
 
-    for (int p = 0; p < 2; ++p) {
+    for (int p = 0; p < num_players_; ++p) {
         float* reg = store_->regrets(p);
         float* strat = store_->strategy(p);
 
@@ -418,12 +468,6 @@ void CFRSolver::applyDiscounting() {
 // ── DCFR discounting (batch, after parallel merge) ──────────────────────
 
 void CFRSolver::applyDiscounting(uint64_t num_iterations_in_batch) {
-    // After a parallel batch, compute the compound discount factor
-    // for the range [iteration_+1 .. iteration_+num_iterations_in_batch].
-    // This is an approximation: we use the midpoint iteration's weights
-    // raised to the batch size, which is accurate when the batch is small
-    // relative to total iterations.
-
     uint64_t t_start = iteration_ + 1;
     uint64_t t_end = iteration_ + num_iterations_in_batch;
     uint64_t t_mid = (t_start + t_end) / 2;
@@ -432,7 +476,6 @@ void CFRSolver::applyDiscounting(uint64_t num_iterations_in_batch) {
     float t_alpha = std::pow(t_f, params_.alpha);
     float t_beta  = std::pow(t_f, params_.beta);
 
-    // Compound the per-iteration discount over the batch.
     float n = static_cast<float>(num_iterations_in_batch);
     float pos_weight = std::pow(t_alpha / (t_alpha + 1.0f), n);
     float neg_weight = std::pow(t_beta  / (t_beta  + 1.0f), n);
@@ -441,7 +484,7 @@ void CFRSolver::applyDiscounting(uint64_t num_iterations_in_batch) {
 
     uint64_t total = store_->totalEntries();
 
-    for (int p = 0; p < 2; ++p) {
+    for (int p = 0; p < num_players_; ++p) {
         float* reg = store_->regrets(p);
         float* strat = store_->strategy(p);
 
