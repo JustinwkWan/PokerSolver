@@ -272,7 +272,7 @@ All other dependencies are fetched automatically by CMake:
 ### Building
 
 ```bash
-git clone https://github.com/yourusername/PokerSolver.git
+git clone https://github.com/JustinwkWan/PokerSolver.git
 cd PokerSolver
 
 mkdir build && cd build
